@@ -1,0 +1,162 @@
+
+
+                                PYTHON 2.0
+                          NOTES ON THE AMIGA PORT
+
+                             October 28, 2000.
+
+	
+           Conversion and Amiga specific code by Irmen de Jong.
+              (Original code by Guido van Rossum and others)
+
+
+
+                   Read the file <DISCL_and_COPYRIGHT>!
+
+   It contains the disclaimer for this software, and copyright notices.
+
+
+
+	Contents:
+	~~~~~~~~~
+
+	1. What's new?	
+	2. General remarks.
+	3. Troubleshooting.
+	4. Thanks.
+
+
++----------------------+
+|                      |
+|  1. What's new?      |
+|                      |
++----------------------+
+
+Well, this is Python version 2.0 (build 1)!
+See the notes in Docs/NEWS for more information on what's new since the 1.x
+versions. Be aware that there are a few language incompatibilities. Just check
+out the regular Python 2.0 news on www.python.org to find out what they are.
+
+This may very well be the last Python version I'm releasing for the Amiga.
+My A4000 is getting old and rusty... And I figured Python 2.0 had to be
+my last effort.
+
+
++----------------------+
+|                      |
+|  2. General remarks  |
+|                      |
++----------------------+
+
+* The MAIN PYTHON SITE is <http://www.python.org>. All general documentation
+  can be obtained from here (Python tutorial, language reference, library
+  reference and much more).
+
+* The AmigaPython homepage is at http://www.bigfoot.com/~irmen/python.html
+  (note the new address!). Check it out for news, future plans, bugs etc.
+
+* In the `Docs/Amiga' directory you can find the docs for the Amiga specific
+  modules and features. Read them, they contain vital information!
+
+* The Python library contains an extensive test set.
+  To try it yourself, type (after installation):
+	Python -c "import test.autotest" (and have patience...)
+	Python -c "import test.autotest" (and have patience...)
+  (Yes: do it TWICE because the generated .pyc files need to be checked too).
+  (You can also start the RunTest.py script from the Workbench).
+  Some tests cannot run on the Amiga - they will be skipped.
+  The report at the end should say something like:
+	31 tests OK.
+	18 tests skipped:  .....
+  If you don't start AmiTCP first, test_socket and test_select will fail.
+  If usergroup.library cannot be opened, crypt, grp and pwd will fail.
+
+* To  see  some  command  line  options,  use  the -?  option, or any other
+  unrecognised option.
+
+* To run a speed benchmark, type:
+	Python -c "import test.pystone; test.pystone.main()"
+  and have some patience. On my system, I get 355 pystones/second.
+
+* In the `Icons' directory there are some icon suggestions.
+  def_py.info is an icon for Python source files (.py)
+  def_pyc.info is an icon for Pytnon bytecode files (.pyc)
+
+* Mail  me  if  you encounter any Amiga specific problems, or if you have any
+  Amiga  related  questions  about  Python,  or  just  for fun.  General
+  questions are better asked on the usenet newsgroup comp.lang.python.  A lot
+  of   information,   including  an  online  manual,  can  be  obtained  from
+  <http://www.python.org/>. Read the FAQ before asking!
+
+
++-----------------------+
+|                       |
+|  3. Troubleshooting   |
+|                       |
++-----------------------+
+
+* When  I  try  to  install  Python,  I  get  "Unable  to  open  your tool
+  'installer'"!
+
+  The Installer® utility is required for installation, but it is not included
+  in  the  archive.   Get  it  from  somewhere  else  and  copy it to your C:
+  directory or somewhere where Workbench can find it.
+
+* When I start python, I get "This program requires a math co-processor"!
+
+  You should upgrade your computer to at least a 68030 with a FPU.
+
+* I   get   "Couldn't   open   bsdsocket.library"   or   "Couldn't   open
+  usergroup.library" errors!
+
+  You  are  trying to use functions that need one of these libraries.  AmiTCP
+  is required if you want to use all (network) functions.
+
+* Python crashes when executing complex (recursive) code!
+
+  This should not happen; you should get a MemoryError exception.  If it does
+  crash, increase your stack size and try again.  Python's default stack size
+  is 40K, which should be enough for most programs.
+
+* Functions which use the PIPE: device (like os.popen) seem to work
+  incorrectly!
+
+  The default l:queue-handler is buggy.  Make sure you have installed a fixed
+  l:queue-handler (I'm using util/sys/HWGQueue.lha from Aminet)
+
+* Other errors
+
+  Mail me at irmen@bigfoot.com with a clear description of the problem.
+
+
++-----------------------+
+|                       |
+|  4. Thanks            |
+|                       |
++-----------------------+
+
+Ofcourse this product could never have happened without the support of various
+people. Amongst others I'd like to thank:
+
+Guido van Rossum - for creating Python in the first place
+Mike Meyer for his various suggestions and problem reports
+Kent Polk for his various suggestions and problem reports
+Lyster E. Wick for his various contributions (NewIcons/ARexx/WB/bugreports)
+Marc Christiansen for his detailed description of the strftime and
+  amiga.crc32 problems (and persuading me to fix them)
+Bablos to make me start polishing up the embedded python code.
+Adam Chodorowski for a few new doslib functions.
+
+And ofcourse thanks to my friends who supported me in the first phase of
+this project and pushed me to continue this work (that was LONG ago, in the
+Python 1.2 days).
+
+If you think your name is missing here, drop me a line!
+
+To every AmigaPython user out there: thanks for your interest!
+
+
+
+
+					Irmen de Jong
+					(irmen@bigfoot.com)

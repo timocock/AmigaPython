@@ -1,0 +1,309 @@
+
+README text for the source code for Amiga Python 1.6
+
+
+Contents:
+----------
+ Requirements
+ Installation/Build instructions
+ AmiTCP / I-Net225 / No Network versions
+ 68000 or 68010 version
+ Changing other compiler options
+ Notes
+ IMPORTANT
+ THANKS
+ Disclaimer & copyright.
+
+
+
+Requirements
+------------
+
+- SAS/C 6.5x
+  Sorry but you must change *A LOT* to compile with other compilers.
+  Please use the latest version of SAS/C (6.58).
+
+- Networking SDK: AmiTCP SDK version 4.3, on Aminet (in comm/tcp).
+  Maybe version 3 works too (haven't tried it).
+
+  Sorry but the INET-225 support is gone for now. Details are in the
+  INET-225 directory.
+
+- Some 8 Mb free harddisk space to compile all code.
+
+- Regular AmigaPython distribution to actually run AmigaPython,
+  because it contains the needed library files and testset.
+
+
+
+Installation/Build instructions
+-------------------------------
+
+First extract the archive.  Duh, you probably figured this out otherwise
+you would't be reading this.
+
+Copy the contents of the LinkLib/ directory to LIB:.  These files are my
+memory pools startup and library code to accelerate malloc() and other
+memory allocation functions.
+
+Then cd to the root directory containing the main SMAKEFILE, and type
+'smake'.  After some time you'll end up with a Python executable in this
+drawer called 'Python16'.
+
+You should ignore the warnings.
+
+When compilation finishes, RUN THE TESTSET with your new executable!  This
+is very important!  The testset is part of the Python library and you
+should look in the Python distribution for these files, and more info
+(Aminet:  dev/lang/Python16.lha).
+
+The executable should be placed in the Python:  directory, which will be
+created by the installer script from the above mentioned distribution.
+Usually you would rename the Python executable to 'Python'.
+
+
+
+AmiTCP / I-Net225 / No Network versions
+---------------------------------------
+
+By default, AmiTCP is assumed to be used as TCP stack.  I've added some
+checks in the code to make sure -at runtime- that AmiTCP exists.  If it
+doesn't, AmigaPython runs fine but you just can't use any network
+functionality.
+
+If you would like to have a fully "clean" "No-network" version, do the
+following:
+- Copy SCOPTIONS_NONET to SCOPTIONS, and SMAKEFILE_NONET to SMAKEFILE.
+- Change in Modules/SMAKEFILE the $(NETOBJECTS) to $(OBJECTS) where
+   indicated.
+- Recompile everything.
+This will solve any problems that could be caused by network/AmiTCP code,
+but it also makes AmigaPython less powerful.
+
+Sorry but the INET-225 support is gone.
+
+
+68000 or 68010 version
+----------------------
+
+AmigaPython doesn't run on a 68000 or 68010 CPU out-of-the-box.  You'll
+have to change compiler options to CPU=ANY and MATH=IEEE (instead of
+CPU=68030 and MATH=881).  BUT there is at least one other place I know of
+that requires additional changes to make it work:  the crc32 code in the
+Amiga directory.  You'll have to edit the SMAKEFILE in the Amiga directory
+and look for a comment "...change to M68000...".  Change the DEFINE on that
+line accordingly.  Otherwise the 68020+ version is assembled...  KRASH.
+
+AmigaPython should run nicely out-of-the-box on a 68020 system provided it
+also has a FPU (68881/2).  I can't test this myself so please notify me if
+I'm wrong.
+
+
+Changing other compiler options
+-------------------------------
+
+In the rare event that you would want to change compiler options and things
+like that, look in the following files:  SCOPTIONS, SMAKEFILE,
+include/config.h, include/config.c, include/osdefs.h.  If you change
+anything you'd better rebuild the thing from scratch.  (type 'smake clean'
+and then 'smake').
+
+
+Notes
+-----
+
+Documentation and library files are NOT included.  Grab the distribution
+release from Aminet (dev/lang/Python.lha) to get them.  Only then you'll
+be able to actually do something with Python.
+
+Ofcourse the main Python site (http://www.python.org/) is a vital source of
+information.
+
+Some tests from the testset fail, others are skipped because they cannot
+run on the Amiga.  The crypt, grp, pwd, select and socket tests fail if
+bsdsocket.library (AmiTCP) or socket.library (I-Net 225) and/or
+usergroup.library cannot be opened.
+
+Contact me for any information (irmen@bigfoot.com).
+My Amiga Python Homepage: http://www.bigfoot.com/~irmen/python.html
+
+
+
+*** IMPORTANT ***
+-----------------
+
+I don't fancy ten different versions of AmigaPython floating around.  So
+*please* if you made a change or enhancement or fix, contact me and if it's
+good it will be merged in the `official' AmigaPython version (mine).  That
+way, everyone can profit from it.  Thanks!
+
+
+*** THANKS ***
+--------------
+
+Ofcourse this product could never have happened without the support of various
+people. Amongst others I'd like to thank:
+
+Guido van Rossum - for creating Python in the first place
+Mike Meyer for his various suggestions and problem reports
+Kent Polk for his various suggestions and problem reports
+Lyster E. Wick for his various contributions (NewIcons/ARexx/WB/bugreports)
+Marc Christiansen for his detailed description of the strftime and
+  amiga.crc32 problems (and persuading me to fix them)
+Bablos to make me start polishing up the embedded python code.
+Adam Chodorowski for a few new doslib functions.
+
+And ofcourse thanks to my friends who supported me in the first phase of
+this project and pushed me to continue this work (that was LONG ago, in the
+Python 1.2 days).
+
+If you think your name is missing here, drop me a line!
+
+To every AmigaPython user out there: thanks for your interest!
+
+
+
+					Irmen de Jong
+					irmen@bigfoot.com
+					October 1, 2000
+
+
+
+
+
+	DISCLAIMER:
+
+I  tried  to  make this program error-free and safe to use, for your and my
+own  benefit.   This  disclamer  applies  to the (small) part of the code I
+wrote  myself.   The  disclamer  from  the  copyright notice from Stichting
+Mathematisch  Centrum  (included  below)  applies  to the rest of the code,
+written by Guido van Rossum and others.
+  
+I  provide  this program "as is".  USE THE PROGRAM AT YOUR OWN RISK.  In no
+event will I be liable for damages to you - whether they arise from the use
+of  this  program  or  the  inability to use it, whether they are direct or
+consequential,  including,  but  not  limited  to,  the loss of data or the
+generation of inaccurate data.  No warranties are made.
+
+
+		Irmen de Jong.
+
+
+
+
+
+	PYTHON COPYRIGHT NOTICE AND LICENSE INFORMATION:
+	------------------------------------------------
+
+
+A. HISTORY OF THE SOFTWARE
+
+Python originated in 1991 at Stichting Mathematisch Centrum (CWI) in
+the Netherlands as an outgrowth of a language called ABC.  Its
+principal author was Guido van Rossum, although it included smaller
+contributions from others at CWI and elsewhere.  The last version of
+Python issued by CWI was Python 1.2.  In 1995, Mr. van Rossum
+continued his work on Python at the Corporation for National Research
+Initiatives (CNRI) in Reston, Virginia where several versions of the
+software were generated.  Python 1.6 is the last of the versions
+developed at CNRI.
+
+
+
+B. TERMS AND CONDITIONS FOR ACCESSING OR OTHERWISE USING Python 1.6
+
+
+1. CNRI OPEN SOURCE LICENSE AGREEMENT
+
+
+IMPORTANT: PLEASE READ THE FOLLOWING AGREEMENT CAREFULLY.
+
+BY CLICKING ON "ACCEPT" WHERE INDICATED BELOW, OR BY COPYING,
+INSTALLING OR OTHERWISE USING PYTHON 1.6 SOFTWARE, YOU ARE DEEMED TO
+HAVE AGREED TO THE TERMS AND CONDITIONS OF THIS LICENSE AGREEMENT.
+
+1. This LICENSE AGREEMENT is between the Corporation for National
+Research Initiatives, having an office at 1895 Preston White Drive,
+Reston, VA 20191 ("CNRI"), and the Individual or Organization
+("Licensee") accessing and otherwise using Python 1.6 software in
+source or binary form and its associated documentation, as released at
+the www.python.org Internet site on September 5, 2000 ("Python 1.6").
+
+2. Subject to the terms and conditions of this License Agreement, CNRI
+hereby grants Licensee a nonexclusive, royalty-free, world-wide
+license to reproduce, analyze, test, perform and/or display publicly,
+prepare derivative works, distribute, and otherwise use Python 1.6
+alone or in any derivative version, provided, however, that CNRI's
+License Agreement and CNRI's notice of copyright, i.e., "Copyright (c)
+1995-2000 Corporation for National Research Initiatives; All Rights
+Reserved" are retained in Python 1.6 alone or in any derivative
+version prepared by Licensee.
+
+Alternately, in lieu of CNRI's License Agreement, Licensee may
+substitute the following text (omitting the quotes): "Python 1.6 is
+made available subject to the terms and conditions in CNRI's License
+Agreement.  This Agreement together with Python 1.6 may be located on
+the Internet using the following unique, persistent identifier (known
+as a handle): 1895.22/1012.  This Agreement may also be obtained from a
+proxy server on the Internet using the following URL:
+http://hdl.handle.net/1895.22/1012".
+
+3. In the event Licensee prepares a derivative work that is based on
+or incorporates Python 1.6 or any part thereof, and wants to make the
+derivative work available to others as provided herein, then Licensee
+hereby agrees to include in any such work a brief summary of the
+changes made to Python 1.6.
+
+4. CNRI is making Python 1.6 available to Licensee on an "AS IS"
+basis.  CNRI MAKES NO REPRESENTATIONS OR WARRANTIES, EXPRESS OR
+IMPLIED.  BY WAY OF EXAMPLE, BUT NOT LIMITATION, CNRI MAKES NO AND
+DISCLAIMS ANY REPRESENTATION OR WARRANTY OF MERCHANTABILITY OR FITNESS
+FOR ANY PARTICULAR PURPOSE OR THAT THE USE OF PYTHON 1.6 WILL NOT
+INFRINGE ANY THIRD PARTY RIGHTS.
+
+5. CNRI SHALL NOT BE LIABLE TO LICENSEE OR ANY OTHER USERS OF PYTHON
+1.6 FOR ANY INCIDENTAL, SPECIAL, OR CONSEQUENTIAL DAMAGES OR LOSS AS A
+RESULT OF MODIFYING, DISTRIBUTING, OR OTHERWISE USING PYTHON 1.6, OR
+ANY DERIVATIVE THEREOF, EVEN IF ADVISED OF THE POSSIBILITY THEREOF.
+
+6. This License Agreement will automatically terminate upon a material
+breach of its terms and conditions.
+
+7. This License Agreement shall be governed by and interpreted in all
+respects by the law of the State of Virginia, excluding conflict of
+law provisions.  Nothing in this License Agreement shall be deemed to
+create any relationship of agency, partnership, or joint venture
+between CNRI and Licensee.  This License Agreement does not grant
+permission to use CNRI trademarks or trade name in a trademark sense
+to endorse or promote products or services of Licensee, or any third
+party.
+
+8. By clicking on the "ACCEPT" button where indicated, or by copying,
+installing or otherwise using Python 1.6, Licensee agrees to be bound
+by the terms and conditions of this License Agreement.
+
+        ACCEPT
+
+
+
+2. CWI PERMISSIONS STATEMENT AND DISCLAIMER
+
+Copyright (c) 1991 - 1995, Stichting Mathematisch Centrum Amsterdam,
+The Netherlands.  All rights reserved.
+
+Permission to use, copy, modify, and distribute this software and its
+documentation for any purpose and without fee is hereby granted,
+provided that the above copyright notice appear in all copies and that
+both that copyright notice and this permission notice appear in
+supporting documentation, and that the name of Stichting Mathematisch
+Centrum or CWI not be used in advertising or publicity pertaining to
+distribution of the software without specific, written prior
+permission.
+
+STICHTING MATHEMATISCH CENTRUM DISCLAIMS ALL WARRANTIES WITH REGARD TO
+THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS, IN NO EVENT SHALL STICHTING MATHEMATISCH CENTRUM BE LIABLE
+FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT
+OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.

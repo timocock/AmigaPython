@@ -1,0 +1,10 @@
+Short:    Amiga Python patched to fix the os.chdir() with source.
+Uploader: 3seas#threeseas.net (Tim Rue)
+Type:     dev/lang
+Requires: The Full Amiga Python Distro - dev/lang/Python20.lha
+
+This is only the Amiga Python executable patched to fix the the os.chdir()
+so it works in a manner that all other platform versions of Python do.
+Upon exit, error exit or otherwise, you are returned to the directory
+from which you were when you started Amiga Python. Source code is included.
+Simply rename Python201 to Python and replace the 2.0 Python exe with it.
