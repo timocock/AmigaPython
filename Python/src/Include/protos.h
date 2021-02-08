@@ -7,7 +7,6 @@
 int Py_Main(int argc, char **argv);
 void Py_GetArgcArgv(int *argc, char ***argv);
 
-
 #ifdef AMITCP
 extern int checkusergrouplib(void); /* in main.c */
 extern int checksocketlib(void); /* in main.c */

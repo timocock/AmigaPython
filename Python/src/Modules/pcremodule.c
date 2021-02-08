@@ -2,7 +2,6 @@
 
 #include "Python.h"
 
-#include <assert.h>
 #ifndef Py_eval_input
 /* For Python 1.4, graminit.h has to be explicitly included */
 #include "graminit.h"
@@ -25,7 +24,7 @@ typedef struct {
         int num_groups;
 } PcreObject;
 
-staticforward PyTypeObject Pcre_Type;
+static PyTypeObject Pcre_Type;
 
 #define PcreObject_Check(v)	((v)->ob_type == &Pcre_Type)
 #define NORMAL			0
@@ -74,7 +73,8 @@ PyPcre_exec(PcreObject *self, PyObject *args)
 	int offsets[100*2]; 
 	PyObject *list;
 
-	if (!PyArg_ParseTuple(args, "t#|iiii:match", &string, &stringlen, &pos, &endpos, &options))
+	if (!PyArg_ParseTuple(args, "t#|iii:match", &string, &stringlen, 
+                                     &pos, &endpos, &options))
 		return NULL;
 	if (endpos == -1) {endpos = stringlen;}
 	count = pcre_exec(self->regex, self->regex_extra, 
@@ -114,7 +114,7 @@ PyPcre_exec(PcreObject *self, PyObject *args)
 }
 
 static PyMethodDef Pcre_methods[] = {
-	{"match",	(PyCFunction)PyPcre_exec,	1},
+	{"match",	(PyCFunction)PyPcre_exec,	METH_VARARGS},
 	{NULL,		NULL}		/* sentinel */
 };
 
@@ -125,10 +125,10 @@ PyPcre_getattr(PcreObject *self, char *name)
 }
 
 
-staticforward PyTypeObject Pcre_Type = {
+static PyTypeObject Pcre_Type = {
 	PyObject_HEAD_INIT(NULL)
 	0,			/*ob_size*/
-	"Pcre",			/*tp_name*/
+	"pcre.Pcre",		/*tp_name*/
 	sizeof(PcreObject),	/*tp_basicsize*/
 	0,			/*tp_itemsize*/
 	/* methods */
@@ -258,13 +258,13 @@ PyPcre_expand_escape(unsigned char *pattern, int pattern_len,
 		*indexptr = end;
 		return Py_BuildValue("c", (char)x);
 	}
-	break;
 
 	case('E'):    case('G'):    case('L'):    case('Q'):
 	case('U'):    case('l'):    case('u'):
 	{
 		char message[50];
-		sprintf(message, "\\%c is not allowed", c);
+		PyOS_snprintf(message, sizeof(message),
+			      "\\%c is not allowed", c);
 		PyErr_SetString(ErrorObject, message);
 		return NULL;
 	}
@@ -331,7 +331,6 @@ PyPcre_expand_escape(unsigned char *pattern, int pattern_len,
 		/* Otherwise, return a string containing the group name */
 		return Py_BuildValue("s#", pattern+index, end-index);
 	}
-	break;
 
 	case('0'):
 	{
@@ -354,7 +353,7 @@ PyPcre_expand_escape(unsigned char *pattern, int pattern_len,
 		*indexptr = i;
 		return Py_BuildValue("c", (unsigned char)octval);
 	}
-	break;
+
 	case('1'):    case('2'):    case('3'):    case('4'):
 	case('5'):    case('6'):    case('7'):    case('8'):
 	case('9'):
@@ -410,7 +409,6 @@ PyPcre_expand_escape(unsigned char *pattern, int pattern_len,
 			return Py_BuildValue("i", pattern[index]-'0');
 		}
 	}
-	break;
 
 	default:
 	  /* It's some unknown escape like \s, so return a string containing
@@ -498,7 +496,7 @@ PyPcre_expand(PyObject *self, PyObject *args)
 				if (result==Py_None)
 				{
 					char message[50];
-					sprintf(message, 
+					PyOS_snprintf(message, sizeof(message),
 						"group did not contribute to the match");
 					PyErr_SetString(ErrorObject, 
 							message);
@@ -584,8 +582,8 @@ PyPcre_expand(PyObject *self, PyObject *args)
 /* List of functions defined in the module */
 
 static PyMethodDef pcre_methods[] = {
-	{"pcre_compile",		PyPcre_compile,		1},
-	{"pcre_expand",		PyPcre_expand,		1},
+	{"pcre_compile",		PyPcre_compile,		METH_VARARGS},
+	{"pcre_expand",		PyPcre_expand,		METH_VARARGS},
 	{NULL,		NULL}		/* sentinel */
 };
 
@@ -612,7 +610,7 @@ insint(PyObject *d, char *name, int value)
 
 /* Initialization function for the module (*must* be called initpcre) */
 
-DL_EXPORT(void)
+PyMODINIT_FUNC
 initpcre(void)
 {
 	PyObject *m, *d;

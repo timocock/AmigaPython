@@ -6,31 +6,36 @@
 
 NETOBJECTS = config.o getpath.o environment.o amigamodule.o \
         regexpr.o arraymodule.o structmodule.o \
-        mathmodule.o regexmodule.o newmodule.o \
+        mathmodule.o regexmodule.o \
         timemodule.o binascii.o md5module.o md5c.o rotormodule.o \
 	operator.o cmathmodule.o errnomodule.o pcremodule.o \
 	shamodule.o ARexxmodule.o Doslibmodule.o \
 	cryptmodule.o syslogmodule.o selectmodule.o socketmodule.o \
 	cStringIO.o cPickle.o pypcre.o pwdmodule.o grpmodule.o \
 	stropmodule.o _sre.o _codecsmodule.o  \
-	unicodedata.o unicodedatabase.o pyexpat.o 
+	pyexpat.o _weakref.o gcmodule.o zipimport.o \
+	symtablemodule.o _testcapimodule.o getbuildinfo.o \
+	_localemodule.o _csv.o xxsubtype.o _randommodule.o \
+	datetimemodule.o bz2module.o zlibmodule.o
+###	unicodedata.o unicodedatabase.o
 ###	Execlibmodule.o SimpleGFXmodule.o
-###	soundex.o
+###	soundex.o signalmodule.o
 
 
 # object list for Python without networking
 
 OBJECTS = config.o getpath.o environment.o amigamodule.o \
         regexpr.o arraymodule.o structmodule.o stropmodule.o \
-        mathmodule.o regexmodule.o newmodule.o \
+        mathmodule.o regexmodule.o \
         timemodule.o binascii.o md5module.o md5c.o rotormodule.o \
 	operator.o cmathmodule.o errnomodule.o pcremodule.o \
 	shamodule.o ARexxmodule.o Doslibmodule.o \
 	cStringIO.o cPickle.o pypcre.o \
 	stropmodule.o _sre.o _codecsmodule.o \
-	unicodedata.o  unicodedatabase.o pyexpat.o
+	pyexpat.o
+###	unicodedata.o  unicodedatabase.o
 ###	Execlibmodule.o SimpleGFXmodule.o
-###	soundex.o 
+###	soundex.o
 
 
 Modules.lib: $(NETOBJECTS)			# SELECT $(OBJECTS) OR $(NETOBJECTS)
@@ -62,6 +67,8 @@ config.o : config.c
 
 cryptmodule.o : cryptmodule.c /Include/Python.h
 
+datetimemodule.o : datetimemodule.c /Include/Python.h
+
 Doslibmodule.o : Doslibmodule.c
 
 environment.o : environment.c /Include/Python.h
@@ -72,7 +79,7 @@ fpectlmodule.o : fpectlmodule.c /Include/Python.h
 
 fpetestmodule.o : fpetestmodule.c /Include/Python.h
 
-getbuildinfo.o : getbuildinfo.c macbuildno.h /Include/config.h 
+getbuildinfo.o : getbuildinfo.c /Include/config.h
 
 getpath.o : getpath.c /Include/protos.h /Include/osdefs.h /Include/Python.h
 
@@ -80,15 +87,11 @@ grpmodule.o : grpmodule.c /Include/Python.h
 
 main.o : main.c /Include/osdefs.h /Include/Python.h
 
-mathmodule.o : mathmodule.c  /Include/Python.h
+mathmodule.o : mathmodule.c  /Include/Python.h /include/longintrepr.h
 
 md5c.o : md5c.c md5.h /Include/config.h
 
 md5module.o : md5module.c md5.h /Include/Python.h
-
-newmodule.o : newmodule.c /Include/compile.h /Include/Python.h
-
-operator.o : operator.c /Include/Python.h
 
 pcremodule.o : pcremodule.c pcre-int.h pcre.h /Include/graminit.h /Include/Python.h
 
@@ -96,7 +99,7 @@ pwdmodule.o : pwdmodule.c /Include/Python.h
 
 pypcre.o : pypcre.c /Include/graminit.h /Include/Python.h pcre-int.h pcre.h
 
-python.o : python.c 
+python.o : python.c
 
 readline.o : readline.c /Include/Python.h
 
@@ -113,8 +116,6 @@ selectmodule.o : selectmodule.c /Include/Python.h
 shamodule.o: shamodule.c /Include/Python.h
 
 socketmodule.o : socketmodule.c /Include/Python.h
-
-soundex.o : soundex.c /Include/Python.h
 
 stropmodule.o : stropmodule.c /Include/Python.h
 
@@ -134,8 +135,34 @@ _codecsmodule.o: _codecsmodule.c /Include/Python.h
 
 _sre.o: _sre.c /Include/Python.h
 
+_weakref.o : _weakref.c /Include/Python.h
+
+gcmodule.o : gcmodule.c /Include/Python.h
+
+zipimport.o : zipimport.c /Include/Python.h /include/structmember.h /include/osdefs.h /include/marshal.h /include/compile.h
+
+signalmodule.o : signalmodule.c /include/Python.h
+
+symtablemodule.o : symtablemodule.c /include/compile.h /include/symtable.h /Include/Python.h
+
+_testcapimodule.o : _testcapimodule.c /Include/Python.h
+
+_localemodule.o : _localemodule.c /Include/Python.h /pyconfig.h
+
+_csv.o : _csv.c /Include/Python.h /include/structmember.h
+
+xxsubtype.o : xxsubtype.c /Include/Python.h /include/structmember.h
+
+bz2module.o: bz2module.c /Include/Python.h /include/structmember.h /include/pyport.h
+
+_randommodule.o : _randommodule.c /Include/Python.h
+
+unicodedatabase.o : amigaunicodedatabase.c
+
+# unicodedata.o : unicodedata.c
+
 pyexpat.o: pyexpat.c
-	sc pyexpat.c incdir=/expat/xmlparse/ IDENTIFIERLENGTH=60
+	sc pyexpat.c IDENTIFIERLENGTH=60
 
 
 # --- DO NOT MODIFY THIS LINE -- AUTO-DEPENDS PRECEDE ---

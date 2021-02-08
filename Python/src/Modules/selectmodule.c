@@ -1,4 +1,3 @@
-
 /* select - Module containing unix select(2) call.
    Under Unix, the file descriptors are small integers.
    Under Win32, select only exists for sockets, and sockets may
@@ -9,11 +8,20 @@
 
 #include "Python.h"
 
-#ifdef HAVE_UNISTD_H
-#include <unistd.h>
+/* Windows #defines FD_SETSIZE to 64 if FD_SETSIZE isn't already defined.
+   64 is too small (too many people have bumped into that limit).
+   Here we boost it.
+   Users who want even more than the boosted limit should #define
+   FD_SETSIZE higher before this; e.g., via compiler /D switch.
+*/
+#if defined(MS_WINDOWS) && !defined(FD_SETSIZE)
+#define FD_SETSIZE 512
 #endif
-#ifdef HAVE_POLL_H
+
+#if defined(HAVE_POLL_H)
 #include <poll.h>
+#elif defined(HAVE_SYS_POLL_H)
+#include <sys/poll.h>
 #endif
 
 #ifdef __sgi
@@ -25,10 +33,13 @@ extern void bzero(void *, int);
 #include <sys/types.h>
 #endif
 
-#if defined(PYOS_OS2)
+#if defined(PYOS_OS2) && !defined(PYCC_GCC)
 #include <sys/time.h>
 #include <utils.h>
 #endif
+
+#ifdef _AMIGA
+#include <proto/socket.h>
 
 #ifdef MS_WINDOWS
 #include <winsock.h>
@@ -39,11 +50,8 @@ extern void bzero(void *, int);
 #else
 #define SOCKET int
 #endif
-#endif
+#endif /* _AMIGA */
 
-#if defined(AMITCP) || defined(INET225)
-#include <proto/socket.h>
-#endif
 
 static PyObject *SelectError;
 
@@ -55,10 +63,10 @@ typedef struct {
 } pylist;
 
 static void
-reap_obj(pylist fd2obj[FD_SETSIZE + 3])
+reap_obj(pylist fd2obj[FD_SETSIZE + 1])
 {
 	int i;
-	for (i = 0; i < FD_SETSIZE + 3 && fd2obj[i].sentinel >= 0; i++) {
+	for (i = 0; i < FD_SETSIZE + 1 && fd2obj[i].sentinel >= 0; i++) {
 		Py_XDECREF(fd2obj[i].obj);
 		fd2obj[i].obj = NULL;
 	}
@@ -70,7 +78,7 @@ reap_obj(pylist fd2obj[FD_SETSIZE + 3])
    returns a number >= 0
 */
 static int
-list2set(PyObject *list, fd_set *set, pylist fd2obj[FD_SETSIZE + 3])
+list2set(PyObject *list, fd_set *set, pylist fd2obj[FD_SETSIZE + 1])
 {
 	int i;
 	int max = -1;
@@ -125,7 +133,7 @@ list2set(PyObject *list, fd_set *set, pylist fd2obj[FD_SETSIZE + 3])
 
 /* returns NULL and sets the Python exception if an error occurred */
 static PyObject *
-set2list(fd_set *set, pylist fd2obj[FD_SETSIZE + 3])
+set2list(fd_set *set, pylist fd2obj[FD_SETSIZE + 1])
 {
 	int i, j, count=0;
 	PyObject *list, *o;
@@ -165,54 +173,68 @@ set2list(fd_set *set, pylist fd2obj[FD_SETSIZE + 3])
 	return NULL;
 }
 
+#undef SELECT_USES_HEAP
+#if FD_SETSIZE > 1024
+#define SELECT_USES_HEAP
+#endif /* FD_SETSIZE > 1024 */
 
-#if defined(AMITCP) || defined(INET225)
-/* Amiga's version of select: WaitSelect()/selectwait() support */
-/* (additional 5th parameter: signal waitmask) */
 static PyObject *
 select_select(PyObject *self, PyObject *args)
 {
-#if defined (MS_WINDOWS) || defined (_AMIGA)
-	/* This would be an awful lot of stack space on Windows! */
+#if defined(SELECT_USES_HEAP) || defined(_AMIGA)
 	pylist *rfd2obj, *wfd2obj, *efd2obj;
-#else
-	pylist rfd2obj[FD_SETSIZE + 3];
-	pylist wfd2obj[FD_SETSIZE + 3];
-	pylist efd2obj[FD_SETSIZE + 3];
-#endif
+#else  /* !SELECT_USES_HEAP */
+	/* XXX: All this should probably be implemented as follows:
+	 * - find the highest descriptor we're interested in
+	 * - add one
+	 * - that's the size
+	 * See: Stevens, APitUE, $12.5.1
+	 */
+	pylist rfd2obj[FD_SETSIZE + 1];
+	pylist wfd2obj[FD_SETSIZE + 1];
+	pylist efd2obj[FD_SETSIZE + 1];
+#endif /* SELECT_USES_HEAP or _AMIGA */
 	PyObject *ifdlist, *ofdlist, *efdlist;
 	PyObject *ret = NULL;
 	PyObject *tout = Py_None;
 	fd_set ifdset, ofdset, efdset;
 	double timeout;
 	struct timeval tv, *tvp;
-	int seconds;
+	long seconds;
 	int imax, omax, emax, max;
 	int n;
-	ULONG waitmask=0;
-	BOOL do_waitmask = FALSE;
+ULONG waitmask=0;
+BOOL do_waitmask = FALSE;
 
 	/* convert arguments */
-	if (!PyArg_ParseTuple(args, "OOO|Oi",
+	if (!PyArg_ParseTuple(args, "OOO|O:select",
 			      &ifdlist, &ofdlist, &efdlist, &tout, &waitmask))
 		return NULL;
 
 	if (tout == Py_None)
 		tvp = (struct timeval *)0;
-	else if (!PyArg_Parse(tout, "d", &timeout)) {
+	else if (!PyNumber_Check(tout)) {
 		PyErr_SetString(PyExc_TypeError,
 				"timeout must be a float or None");
 		return NULL;
 	}
 	else {
-		seconds = (int)timeout;
+		timeout = PyFloat_AsDouble(tout);
+		if (timeout == -1 && PyErr_Occurred())
+			return NULL;
+		if (timeout > (double)LONG_MAX) {
+			PyErr_SetString(PyExc_OverflowError,
+					"timeout period too long");
+			return NULL;
+		}
+		seconds = (long)timeout;
 		timeout = timeout - (double)seconds;
 		tv.tv_sec = seconds;
-		tv.tv_usec = (int)(timeout*1000000.0);
+		tv.tv_usec = (long)(timeout*1000000.0);
 		tvp = &tv;
 	}
 
-	if(waitmask) do_waitmask=TRUE;
+if(waitmask) do_waitmask=TRUE;
 
 	/* sanity check first three arguments */
 	if (!PyList_Check(ifdlist) ||
@@ -224,29 +246,29 @@ select_select(PyObject *self, PyObject *args)
 		return NULL;
 	}
 
-#if defined(MS_WINDOWS) || defined (_AMIGA)
+#if defined(SELECT_USES_HEAP) || defined(_AMIGA)
 	/* Allocate memory for the lists */
-	rfd2obj = PyMem_NEW(pylist, FD_SETSIZE + 3);
-	wfd2obj = PyMem_NEW(pylist, FD_SETSIZE + 3);
-	efd2obj = PyMem_NEW(pylist, FD_SETSIZE + 3);
+	rfd2obj = PyMem_NEW(pylist, FD_SETSIZE + 1);
+	wfd2obj = PyMem_NEW(pylist, FD_SETSIZE + 1);
+	efd2obj = PyMem_NEW(pylist, FD_SETSIZE + 1);
 	if (rfd2obj == NULL || wfd2obj == NULL || efd2obj == NULL) {
 		if (rfd2obj) PyMem_DEL(rfd2obj);
 		if (wfd2obj) PyMem_DEL(wfd2obj);
 		if (efd2obj) PyMem_DEL(efd2obj);
-		return NULL;
+		return PyErr_NoMemory();
 	}
-#endif
+#endif /* SELECT_USES_HEAP */
 	/* Convert lists to fd_sets, and get maximum fd number
 	 * propagates the Python exception set in list2set()
 	 */
 	rfd2obj[0].sentinel = -1;
 	wfd2obj[0].sentinel = -1;
 	efd2obj[0].sentinel = -1;
-	if ((imax=list2set(ifdlist, &ifdset, rfd2obj)) < 0) 
+	if ((imax=list2set(ifdlist, &ifdset, rfd2obj)) < 0)
 		goto finally;
-	if ((omax=list2set(ofdlist, &ofdset, wfd2obj)) < 0) 
+	if ((omax=list2set(ofdlist, &ofdset, wfd2obj)) < 0)
 		goto finally;
-	if ((emax=list2set(efdlist, &efdset, efd2obj)) < 0) 
+	if ((emax=list2set(efdlist, &efdset, efd2obj)) < 0)
 		goto finally;
 	max = imax;
 	if (omax > max) max = omax;
@@ -257,147 +279,18 @@ select_select(PyObject *self, PyObject *args)
 	n = WaitSelect(max, &ifdset, &ofdset, &efdset, tvp, &waitmask);
 #else /* INET225 */
 	n = selectwait(max, &ifdset, &ofdset, &efdset, tvp, &waitmask);
-#endif	
+#endif
 	Py_END_ALLOW_THREADS
 
-	if (n < 0) {
-		PyErr_SetFromErrno(SelectError);
-	}
-	else if (n == 0) {
-                /* optimization */
-		ifdlist = PyList_New(0);
-		if (ifdlist) {
-			if(do_waitmask) ret=Py_BuildValue("OOOi", ifdlist, ifdlist, ifdlist, waitmask);
-			else ret = Py_BuildValue("OOO", ifdlist, ifdlist, ifdlist);
-			Py_DECREF(ifdlist);
-		}
-	}
-	else {
-		/* any of these three calls can raise an exception.  it's more
-		   convenient to test for this after all three calls... but
-		   is that acceptable?
-		*/
-		ifdlist = set2list(&ifdset, rfd2obj);
-		ofdlist = set2list(&ofdset, wfd2obj);
-		efdlist = set2list(&efdset, efd2obj);
-		if (PyErr_Occurred())
-			ret = NULL;
-		else
-		{
-			if(do_waitmask) ret=Py_BuildValue("OOOi", ifdlist, ofdlist, efdlist, waitmask);
-			else ret = Py_BuildValue("OOO", ifdlist, ofdlist, efdlist);
-		}
-
-		Py_DECREF(ifdlist);
-		Py_DECREF(ofdlist);
-		Py_DECREF(efdlist);
-	}
-	
-  finally:
-	reap_obj(rfd2obj);
-	reap_obj(wfd2obj);
-	reap_obj(efd2obj);
-#if defined(MS_WINDOWS) || defined (_AMIGA)
-	PyMem_DEL(rfd2obj);
-	PyMem_DEL(wfd2obj);
-	PyMem_DEL(efd2obj);
-#endif
-	return ret;
-}
-
-#else /* ! AMITCP || INET225 */
-/* This is the select function for all other platforms */
-    
-static PyObject *
-select_select(PyObject *self, PyObject *args)
-{
 #ifdef MS_WINDOWS
-	/* This would be an awful lot of stack space on Windows! */
-	pylist *rfd2obj, *wfd2obj, *efd2obj;
+	if (n == SOCKET_ERROR) {
+		PyErr_SetExcFromWindowsErr(SelectError, WSAGetLastError());
+	}
 #else
-	pylist rfd2obj[FD_SETSIZE + 3];
-	pylist wfd2obj[FD_SETSIZE + 3];
-	pylist efd2obj[FD_SETSIZE + 3];
-#endif
-	PyObject *ifdlist, *ofdlist, *efdlist;
-	PyObject *ret = NULL;
-	PyObject *tout = Py_None;
-	fd_set ifdset, ofdset, efdset;
-	double timeout;
-	struct timeval tv, *tvp;
-	long seconds;
-	int imax, omax, emax, max;
-	int n;
-
-	/* convert arguments */
-	if (!PyArg_ParseTuple(args, "OOO|O:select",
-			      &ifdlist, &ofdlist, &efdlist, &tout))
-		return NULL;
-
-	if (tout == Py_None)
-		tvp = (struct timeval *)0;
-	else if (!PyArg_Parse(tout, "d", &timeout)) {
-		PyErr_SetString(PyExc_TypeError,
-				"timeout must be a float or None");
-		return NULL;
-	}
-	else {
-		if (timeout > (double)LONG_MAX) {
-			PyErr_SetString(PyExc_OverflowError, "timeout period too long");
-			return NULL;
-		}
-		seconds = (long)timeout;
-		timeout = timeout - (double)seconds;
-		tv.tv_sec = seconds;
-		tv.tv_usec = (long)(timeout*1000000.0);
-		tvp = &tv;
-	}
-
-	/* sanity check first three arguments */
-	if (!PyList_Check(ifdlist) ||
-	    !PyList_Check(ofdlist) ||
-	    !PyList_Check(efdlist))
-	{
-		PyErr_SetString(PyExc_TypeError,
-				"arguments 1-3 must be lists");
-		return NULL;
-	}
-
-#ifdef MS_WINDOWS
-	/* Allocate memory for the lists */
-	rfd2obj = PyMem_NEW(pylist, FD_SETSIZE + 3);
-	wfd2obj = PyMem_NEW(pylist, FD_SETSIZE + 3);
-	efd2obj = PyMem_NEW(pylist, FD_SETSIZE + 3);
-	if (rfd2obj == NULL || wfd2obj == NULL || efd2obj == NULL) {
-		if (rfd2obj) PyMem_DEL(rfd2obj);
-		if (wfd2obj) PyMem_DEL(wfd2obj);
-		if (efd2obj) PyMem_DEL(efd2obj);
-		return NULL;
-	}
-#endif
-	/* Convert lists to fd_sets, and get maximum fd number
-	 * propagates the Python exception set in list2set()
-	 */
-	rfd2obj[0].sentinel = -1;
-	wfd2obj[0].sentinel = -1;
-	efd2obj[0].sentinel = -1;
-	if ((imax=list2set(ifdlist, &ifdset, rfd2obj)) < 0) 
-		goto finally;
-	if ((omax=list2set(ofdlist, &ofdset, wfd2obj)) < 0) 
-		goto finally;
-	if ((emax=list2set(efdlist, &efdset, efd2obj)) < 0) 
-		goto finally;
-	max = imax;
-	if (omax > max) max = omax;
-	if (emax > max) max = emax;
-
-	Py_BEGIN_ALLOW_THREADS
-	n = select(max, &ifdset, &ofdset, &efdset, tvp);
-	Py_END_ALLOW_THREADS
-
 	if (n < 0) {
 		PyErr_SetFromErrno(SelectError);
 	}
+#endif
 	else if (n == 0) {
                 /* optimization */
 		ifdlist = PyList_New(0);
@@ -417,51 +310,50 @@ select_select(PyObject *self, PyObject *args)
 		if (PyErr_Occurred())
 			ret = NULL;
 		else
-			ret = Py_BuildValue("OOO", ifdlist, ofdlist, efdlist);
-
+		{
+			if(do_waitmask) ret=Py_BuildValue("OOOi", ifdlist, ofdlist, efdlist, waitmask);
+			else ret = Py_BuildValue("OOO", ifdlist, ofdlist, efdlist);
+		}
 		Py_DECREF(ifdlist);
 		Py_DECREF(ofdlist);
 		Py_DECREF(efdlist);
 	}
-	
+
   finally:
 	reap_obj(rfd2obj);
 	reap_obj(wfd2obj);
 	reap_obj(efd2obj);
-#ifdef MS_WINDOWS
+#if defined(SELECT_USES_HEAP) || defined(_AMIGA)
 	PyMem_DEL(rfd2obj);
 	PyMem_DEL(wfd2obj);
 	PyMem_DEL(efd2obj);
-#endif
+#endif /* SELECT_USES_HEAP or _AMIGA */
 	return ret;
 }
 
-#endif /* !AMITCP || INET225 */
-
-
 #ifdef HAVE_POLL
-/* 
+/*
  * poll() support
  */
 
 typedef struct {
 	PyObject_HEAD
 	PyObject *dict;
-	int ufd_uptodate; 
+	int ufd_uptodate;
 	int ufd_len;
         struct pollfd *ufds;
 } pollObject;
 
-staticforward PyTypeObject poll_Type;
+static PyTypeObject poll_Type;
 
-/* Update the malloc'ed array of pollfds to match the dictionary 
+/* Update the malloc'ed array of pollfds to match the dictionary
    contained within a pollObject.  Return 1 on success, 0 on an error.
 */
 
 static int
 update_ufd_array(pollObject *self)
 {
-	int i, j, pos;
+	int i, pos;
 	PyObject *key, *value;
 
 	self->ufd_len = PyDict_Size(self->dict);
@@ -472,68 +364,79 @@ update_ufd_array(pollObject *self)
 	}
 
 	i = pos = 0;
-	while ((j = PyDict_Next(self->dict, &pos, &key, &value))) {
+	while (PyDict_Next(self->dict, &pos, &key, &value)) {
 		self->ufds[i].fd = PyInt_AsLong(key);
-		self->ufds[i].events = PyInt_AsLong(value);
+		self->ufds[i].events = (short)PyInt_AsLong(value);
 		i++;
 	}
 	self->ufd_uptodate = 1;
 	return 1;
 }
 
-static char poll_register_doc[] =
+PyDoc_STRVAR(poll_register_doc,
 "register(fd [, eventmask] ) -> None\n\n\
 Register a file descriptor with the polling object.\n\
-fd -- either an integer, or an object with a fileno() method returning an int.\n\
-events -- an optional bitmask describing the type of events to check for";
+fd -- either an integer, or an object with a fileno() method returning an\n\
+      int.\n\
+events -- an optional bitmask describing the type of events to check for");
 
 static PyObject *
-poll_register(pollObject *self, PyObject *args) 
+poll_register(pollObject *self, PyObject *args)
 {
 	PyObject *o, *key, *value;
 	int fd, events = POLLIN | POLLPRI | POLLOUT;
+	int err;
 
-	if (!PyArg_ParseTuple(args, "O|i", &o, &events)) {
+	if (!PyArg_ParseTuple(args, "O|i:register", &o, &events)) {
 		return NULL;
 	}
-  
+
 	fd = PyObject_AsFileDescriptor(o);
 	if (fd == -1) return NULL;
 
-	/* Add entry to the internal dictionary: the key is the 
+	/* Add entry to the internal dictionary: the key is the
 	   file descriptor, and the value is the event mask. */
-	if ( (NULL == (key = PyInt_FromLong(fd))) ||
-	     (NULL == (value = PyInt_FromLong(events))) ||
-	     (PyDict_SetItem(self->dict, key, value)) == -1) {
+	key = PyInt_FromLong(fd);
+	if (key == NULL)
+		return NULL;
+	value = PyInt_FromLong(events);
+	if (value == NULL) {
+		Py_DECREF(key);
 		return NULL;
 	}
+	err = PyDict_SetItem(self->dict, key, value);
+	Py_DECREF(key);
+	Py_DECREF(value);
+	if (err < 0)
+		return NULL;
+
 	self->ufd_uptodate = 0;
-		       
+
 	Py_INCREF(Py_None);
 	return Py_None;
 }
 
-static char poll_unregister_doc[] =
+PyDoc_STRVAR(poll_unregister_doc,
 "unregister(fd) -> None\n\n\
-Remove a file descriptor being tracked by the polling object.";
+Remove a file descriptor being tracked by the polling object.");
 
 static PyObject *
-poll_unregister(pollObject *self, PyObject *args) 
+poll_unregister(pollObject *self, PyObject *args)
 {
 	PyObject *o, *key;
 	int fd;
 
-	if (!PyArg_ParseTuple(args, "O", &o)) {
+	if (!PyArg_ParseTuple(args, "O:unregister", &o)) {
 		return NULL;
 	}
-  
+
 	fd = PyObject_AsFileDescriptor( o );
-	if (fd == -1) 
+	if (fd == -1)
 		return NULL;
 
 	/* Check whether the fd is already in the array */
 	key = PyInt_FromLong(fd);
-	if (key == NULL) 
+	if (key == NULL)
 		return NULL;
 
 	if (PyDict_DelItem(self->dict, key) == -1) {
@@ -550,33 +453,40 @@ poll_unregister(pollObject *self, PyObject *args)
 	return Py_None;
 }
 
-static char poll_poll_doc[] =
+PyDoc_STRVAR(poll_poll_doc,
 "poll( [timeout] ) -> list of (fd, event) 2-tuples\n\n\
 Polls the set of registered file descriptors, returning a list containing \n\
-any descriptors that have events or errors to report.";
+any descriptors that have events or errors to report.");
 
 static PyObject *
-poll_poll(pollObject *self, PyObject *args) 
+poll_poll(pollObject *self, PyObject *args)
 {
 	PyObject *result_list = NULL, *tout = NULL;
 	int timeout = 0, poll_result, i, j;
 	PyObject *value = NULL, *num = NULL;
 
-	if (!PyArg_ParseTuple(args, "|O", &tout)) {
+	if (!PyArg_ParseTuple(args, "|O:poll", &tout)) {
 		return NULL;
 	}
 
 	/* Check values for timeout */
 	if (tout == NULL || tout == Py_None)
 		timeout = -1;
-	else if (!PyArg_Parse(tout, "i", &timeout)) {
+	else if (!PyNumber_Check(tout)) {
 		PyErr_SetString(PyExc_TypeError,
 				"timeout must be an integer or None");
 		return NULL;
 	}
+	else {
+		tout = PyNumber_Int(tout);
+		if (!tout)
+			return NULL;
+		timeout = PyInt_AsLong(tout);
+		Py_DECREF(tout);
+	}
 
 	/* Ensure the ufd array is up to date */
-	if (!self->ufd_uptodate) 
+	if (!self->ufd_uptodate)
 		if (update_ufd_array(self) == 0)
 			return NULL;
 
@@ -584,16 +494,16 @@ poll_poll(pollObject *self, PyObject *args)
 	Py_BEGIN_ALLOW_THREADS;
 	poll_result = poll(self->ufds, self->ufd_len, timeout);
 	Py_END_ALLOW_THREADS;
- 
+
 	if (poll_result < 0) {
 		PyErr_SetFromErrno(SelectError);
 		return NULL;
-	} 
-       
+	}
+
 	/* build the result list */
-  
+
 	result_list = PyList_New(poll_result);
-	if (!result_list) 
+	if (!result_list)
 		return NULL;
 	else {
 		for (i = 0, j = 0; j < poll_result; j++) {
@@ -635,11 +545,11 @@ poll_poll(pollObject *self, PyObject *args)
 }
 
 static PyMethodDef poll_methods[] = {
-	{"register",	(PyCFunction)poll_register,	
+	{"register",	(PyCFunction)poll_register,
 	 METH_VARARGS,  poll_register_doc},
-	{"unregister",	(PyCFunction)poll_unregister,	
+	{"unregister",	(PyCFunction)poll_unregister,
 	 METH_VARARGS,  poll_unregister_doc},
-	{"poll",	(PyCFunction)poll_poll,	
+	{"poll",	(PyCFunction)poll_poll,
 	 METH_VARARGS,  poll_poll_doc},
 	{NULL,		NULL}		/* sentinel */
 };
@@ -651,7 +561,7 @@ newPollObject(void)
 	self = PyObject_New(pollObject, &poll_Type);
 	if (self == NULL)
 		return NULL;
-	/* ufd_uptodate is a Boolean, denoting whether the 
+	/* ufd_uptodate is a Boolean, denoting whether the
 	   array pointed to by ufds matches the contents of the dictionary. */
 	self->ufd_uptodate = 0;
 	self->ufds = NULL;
@@ -678,12 +588,12 @@ poll_getattr(pollObject *self, char *name)
 	return Py_FindMethod(poll_methods, (PyObject *)self, name);
 }
 
-statichere PyTypeObject poll_Type = {
+static PyTypeObject poll_Type = {
 	/* The ob_type field must be initialized in the module init function
 	 * to be portable to Windows without using C++. */
 	PyObject_HEAD_INIT(NULL)
 	0,			/*ob_size*/
-	"poll",			/*tp_name*/
+	"select.poll",		/*tp_name*/
 	sizeof(pollObject),	/*tp_basicsize*/
 	0,			/*tp_itemsize*/
 	/* methods */
@@ -699,15 +609,15 @@ statichere PyTypeObject poll_Type = {
 	0,			/*tp_hash*/
 };
 
-static char poll_doc[] = 
+PyDoc_STRVAR(poll_doc,
 "Returns a polling object, which supports registering and\n\
-unregistering file descriptors, and then polling them for I/O events.";
+unregistering file descriptors, and then polling them for I/O events.");
 
 static PyObject *
 select_poll(PyObject *self, PyObject *args)
 {
 	pollObject *rv;
-	
+
 	if (!PyArg_ParseTuple(args, ":poll"))
 		return NULL;
 	rv = newPollObject();
@@ -717,7 +627,7 @@ select_poll(PyObject *self, PyObject *args)
 }
 #endif /* HAVE_POLL */
 
-static char select_doc[] =
+PyDoc_STRVAR(select_doc,
 "select(rlist, wlist, xlist[, timeout]) -> (rlist, wlist, xlist)\n\
 \n\
 Wait until one or more file descriptors are ready for some kind of I/O.\n\
@@ -738,7 +648,7 @@ arguments; each contains the subset of the corresponding file descriptors\n\
 that are ready.\n\
 \n\
 *** IMPORTANT NOTICE ***\n\
-On Windows, only sockets are supported; on Unix, all file descriptors.";
+On Windows, only sockets are supported; on Unix, all file descriptors.");
 
 static PyMethodDef select_methods[] = {
     {"select",	select_select, METH_VARARGS, select_doc},
@@ -748,62 +658,44 @@ static PyMethodDef select_methods[] = {
     {0,  	0},			     /* sentinel */
 };
 
-static char module_doc[] =
+PyDoc_STRVAR(module_doc,
 "This module supports asynchronous I/O on multiple file descriptors.\n\
 \n\
 *** IMPORTANT NOTICE ***\n\
-On Windows, only sockets are supported; on Unix, all file descriptors.";
+On Windows, only sockets are supported; on Unix, all file descriptors.");
 
-/*
- * Convenience routine to export an integer value.
- * For simplicity, errors (which are unlikely anyway) are ignored.
- */
-
-static void
-insint(PyObject *d, char *name, int value)
-{
-	PyObject *v = PyInt_FromLong((long) value);
-	if (v == NULL) {
-		/* Don't bother reporting this error */
-		PyErr_Clear();
-	}
-	else {
-		PyDict_SetItemString(d, name, v);
-		Py_DECREF(v);
-	}
-}
-
-DL_EXPORT(void)
+PyMODINIT_FUNC
 initselect(void)
 {
-	PyObject *m, *d;
+	PyObject *m;
 	m = Py_InitModule3("select", select_methods, module_doc);
-	d = PyModule_GetDict(m);
+
 	SelectError = PyErr_NewException("select.error", NULL, NULL);
-	PyDict_SetItemString(d, "error", SelectError);
+	Py_INCREF(SelectError);
+	PyModule_AddObject(m, "error", SelectError);
 #ifdef HAVE_POLL
 	poll_Type.ob_type = &PyType_Type;
-	insint(d, "POLLIN", POLLIN);
-	insint(d, "POLLPRI", POLLPRI);
-	insint(d, "POLLOUT", POLLOUT);
-	insint(d, "POLLERR", POLLERR);
-	insint(d, "POLLHUP", POLLHUP);
-	insint(d, "POLLNVAL", POLLNVAL);
+	PyModule_AddIntConstant(m, "POLLIN", POLLIN);
+	PyModule_AddIntConstant(m, "POLLPRI", POLLPRI);
+	PyModule_AddIntConstant(m, "POLLOUT", POLLOUT);
+	PyModule_AddIntConstant(m, "POLLERR", POLLERR);
+	PyModule_AddIntConstant(m, "POLLHUP", POLLHUP);
+	PyModule_AddIntConstant(m, "POLLNVAL", POLLNVAL);
 
 #ifdef POLLRDNORM
-	insint(d, "POLLRDNORM", POLLRDNORM);
+	PyModule_AddIntConstant(m, "POLLRDNORM", POLLRDNORM);
 #endif
 #ifdef POLLRDBAND
-	insint(d, "POLLRDBAND", POLLRDBAND);
+	PyModule_AddIntConstant(m, "POLLRDBAND", POLLRDBAND);
 #endif
 #ifdef POLLWRNORM
-	insint(d, "POLLWRNORM", POLLWRNORM);
+	PyModule_AddIntConstant(m, "POLLWRNORM", POLLWRNORM);
 #endif
 #ifdef POLLWRBAND
-	insint(d, "POLLWRBAND", POLLWRBAND);
+	PyModule_AddIntConstant(m, "POLLWRBAND", POLLWRBAND);
 #endif
 #ifdef POLLMSG
-	insint(d, "POLLMSG", POLLMSG);
+	PyModule_AddIntConstant(m, "POLLMSG", POLLMSG);
 #endif
 #endif /* HAVE_POLL */
 }

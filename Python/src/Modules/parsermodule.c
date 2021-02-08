@@ -28,6 +28,7 @@
 #include "Python.h"                     /* general Python API             */
 #include "graminit.h"                   /* symbols defined in the grammar */
 #include "node.h"                       /* internal parser structure      */
+#include "errcode.h"                    /* error codes for PyNode_*()     */
 #include "token.h"                      /* token definitions              */
                                         /* ISTERMINAL() / ISNONTERMINAL() */
 #include "compile.h"                    /* PyNode_Compile()               */
@@ -45,20 +46,17 @@ char *strdup(char *);
 /*  String constants used to initialize module attributes.
  *
  */
-static char*
-parser_copyright_string
-= "Copyright 1995-1996 by Virginia Polytechnic Institute & State\n\
+static char parser_copyright_string[] =
+"Copyright 1995-1996 by Virginia Polytechnic Institute & State\n\
 University, Blacksburg, Virginia, USA, and Fred L. Drake, Jr., Reston,\n\
 Virginia, USA.  Portions copyright 1991-1995 by Stichting Mathematisch\n\
 Centrum, Amsterdam, The Netherlands.";
 
 
-static char*
-parser_doc_string
-= "This is an interface to Python's internal parser.";
+PyDoc_STRVAR(parser_doc_string,
+"This is an interface to Python's internal parser.");
 
-static char*
-parser_version_string = "0.5";
+static char parser_version_string[] = "0.5";
 
 
 typedef PyObject* (*SeqMaker) (int length);
@@ -91,7 +89,7 @@ node2tuple(node *n,                     /* node to convert               */
         PyObject *v;
         PyObject *w;
 
-        v = mkseq(1 + NCH(n));
+        v = mkseq(1 + NCH(n) + (TYPE(n) == encoding_decl));
         if (v == NULL)
             return (v);
         w = PyInt_FromLong(TYPE(n));
@@ -108,6 +106,9 @@ node2tuple(node *n,                     /* node to convert               */
             }
             (void) addelem(v, i+1, w);
         }
+
+        if (TYPE(n) == encoding_decl)
+            (void) addelem(v, i+1, PyString_FromString(STR(n)));
         return (v);
     }
     else if (ISTERMINAL(TYPE(n))) {
@@ -133,22 +134,18 @@ node2tuple(node *n,                     /* node to convert               */
 
 
 /*  There are two types of intermediate objects we're interested in:
- *  'eval' and 'exec' types.  These constants can be used in the ast_type
+ *  'eval' and 'exec' types.  These constants can be used in the st_type
  *  field of the object type to identify which any given object represents.
  *  These should probably go in an external header to allow other extensions
  *  to use them, but then, we really should be using C++ too.  ;-)
- *
- *  The PyAST_FRAGMENT type is not currently supported.  Maybe not useful?
- *  Haven't decided yet.
  */
 
-#define PyAST_EXPR      1
-#define PyAST_SUITE     2
-#define PyAST_FRAGMENT  3
+#define PyST_EXPR  1
+#define PyST_SUITE 2
 
 
 /*  These are the internal objects and definitions required to implement the
- *  AST type.  Most of the internal names are more reminiscent of the 'old'
+ *  ST type.  Most of the internal names are more reminiscent of the 'old'
  *  naming style, but the code uses the new naming convention.
  */
 
@@ -156,29 +153,24 @@ static PyObject*
 parser_error = 0;
 
 
-typedef struct _PyAST_Object {
+typedef struct {
     PyObject_HEAD                       /* standard object header           */
-    node* ast_node;                     /* the node* returned by the parser */
-    int   ast_type;                     /* EXPR or SUITE ?                  */
-} PyAST_Object;
+    node* st_node;                      /* the node* returned by the parser */
+    int   st_type;                      /* EXPR or SUITE ?                  */
+} PyST_Object;
 
 
-staticforward void
-parser_free(PyAST_Object *ast);
-
-staticforward int
-parser_compare(PyAST_Object *left, PyAST_Object *right);
-
-staticforward PyObject *
-parser_getattr(PyObject *self, char *name);
+static void parser_free(PyST_Object *st);
+static int parser_compare(PyST_Object *left, PyST_Object *right);
+static PyObject *parser_getattr(PyObject *self, char *name);
 
 
 static
-PyTypeObject PyAST_Type = {
+PyTypeObject PyST_Type = {
     PyObject_HEAD_INIT(NULL)
     0,
-    "ast",                              /* tp_name              */
-    (int) sizeof(PyAST_Object),         /* tp_basicsize         */
+    "parser.st",                        /* tp_name              */
+    (int) sizeof(PyST_Object),          /* tp_basicsize         */
     0,                                  /* tp_itemsize          */
     (destructor)parser_free,            /* tp_dealloc           */
     0,                                  /* tp_print             */
@@ -202,7 +194,7 @@ PyTypeObject PyAST_Type = {
 
     /* __doc__ */
     "Intermediate representation of a Python parse tree."
-};  /* PyAST_Type */
+};  /* PyST_Type */
 
 
 static int
@@ -235,7 +227,7 @@ parser_compare_nodes(node *left, node *right)
 }
 
 
-/*  int parser_compare(PyAST_Object* left, PyAST_Object* right)
+/*  int parser_compare(PyST_Object* left, PyST_Object* right)
  *
  *  Comparison function used by the Python operators ==, !=, <, >, <=, >=
  *  This really just wraps a call to parser_compare_nodes() with some easy
@@ -243,7 +235,7 @@ parser_compare_nodes(node *left, node *right)
  *
  */
 static int
-parser_compare(PyAST_Object *left, PyAST_Object *right)
+parser_compare(PyST_Object *left, PyST_Object *right)
 {
     if (left == right)
         return (0);
@@ -251,54 +243,54 @@ parser_compare(PyAST_Object *left, PyAST_Object *right)
     if ((left == 0) || (right == 0))
         return (-1);
 
-    return (parser_compare_nodes(left->ast_node, right->ast_node));
+    return (parser_compare_nodes(left->st_node, right->st_node));
 }
 
 
-/*  parser_newastobject(node* ast)
+/*  parser_newstobject(node* st)
  *
- *  Allocates a new Python object representing an AST.  This is simply the
+ *  Allocates a new Python object representing an ST.  This is simply the
  *  'wrapper' object that holds a node* and allows it to be passed around in
  *  Python code.
  *
  */
 static PyObject*
-parser_newastobject(node *ast, int type)
+parser_newstobject(node *st, int type)
 {
-    PyAST_Object* o = PyObject_New(PyAST_Object, &PyAST_Type);
+    PyST_Object* o = PyObject_New(PyST_Object, &PyST_Type);
 
     if (o != 0) {
-        o->ast_node = ast;
-        o->ast_type = type;
+        o->st_node = st;
+        o->st_type = type;
     }
     else {
-        PyNode_Free(ast);
+        PyNode_Free(st);
     }
     return ((PyObject*)o);
 }
 
 
-/*  void parser_free(PyAST_Object* ast)
+/*  void parser_free(PyST_Object* st)
  *
  *  This is called by a del statement that reduces the reference count to 0.
  *
  */
 static void
-parser_free(PyAST_Object *ast)
+parser_free(PyST_Object *st)
 {
-    PyNode_Free(ast->ast_node);
-    PyObject_Del(ast);
+    PyNode_Free(st->st_node);
+    PyObject_Del(st);
 }
 
 
-/*  parser_ast2tuple(PyObject* self, PyObject* args, PyObject* kw)
+/*  parser_st2tuple(PyObject* self, PyObject* args, PyObject* kw)
  *
  *  This provides conversion from a node* to a tuple object that can be
- *  returned to the Python-level caller.  The AST object is not modified.
+ *  returned to the Python-level caller.  The ST object is not modified.
  *
  */
 static PyObject*
-parser_ast2tuple(PyAST_Object *self, PyObject *args, PyObject *kw)
+parser_st2tuple(PyST_Object *self, PyObject *args, PyObject *kw)
 {
     PyObject *line_option = 0;
     PyObject *res = 0;
@@ -307,8 +299,8 @@ parser_ast2tuple(PyAST_Object *self, PyObject *args, PyObject *kw)
     static char *keywords[] = {"ast", "line_info", NULL};
 
     if (self == NULL) {
-        ok = PyArg_ParseTupleAndKeywords(args, kw, "O!|O:ast2tuple", keywords,
-                                         &PyAST_Type, &self, &line_option);
+        ok = PyArg_ParseTupleAndKeywords(args, kw, "O!|O:st2tuple", keywords,
+                                         &PyST_Type, &self, &line_option);
     }
     else
         ok = PyArg_ParseTupleAndKeywords(args, kw, "|O:totuple", &keywords[1],
@@ -319,24 +311,24 @@ parser_ast2tuple(PyAST_Object *self, PyObject *args, PyObject *kw)
             lineno = (PyObject_IsTrue(line_option) != 0) ? 1 : 0;
         }
         /*
-         *  Convert AST into a tuple representation.  Use Guido's function,
+         *  Convert ST into a tuple representation.  Use Guido's function,
          *  since it's known to work already.
          */
-        res = node2tuple(((PyAST_Object*)self)->ast_node,
+        res = node2tuple(((PyST_Object*)self)->st_node,
                          PyTuple_New, PyTuple_SetItem, lineno);
     }
     return (res);
 }
 
 
-/*  parser_ast2list(PyObject* self, PyObject* args, PyObject* kw)
+/*  parser_st2list(PyObject* self, PyObject* args, PyObject* kw)
  *
  *  This provides conversion from a node* to a list object that can be
- *  returned to the Python-level caller.  The AST object is not modified.
+ *  returned to the Python-level caller.  The ST object is not modified.
  *
  */
 static PyObject*
-parser_ast2list(PyAST_Object *self, PyObject *args, PyObject *kw)
+parser_st2list(PyST_Object *self, PyObject *args, PyObject *kw)
 {
     PyObject *line_option = 0;
     PyObject *res = 0;
@@ -345,8 +337,8 @@ parser_ast2list(PyAST_Object *self, PyObject *args, PyObject *kw)
     static char *keywords[] = {"ast", "line_info", NULL};
 
     if (self == NULL)
-        ok = PyArg_ParseTupleAndKeywords(args, kw, "O!|O:ast2list", keywords,
-                                         &PyAST_Type, &self, &line_option);
+        ok = PyArg_ParseTupleAndKeywords(args, kw, "O!|O:st2list", keywords,
+                                         &PyST_Type, &self, &line_option);
     else
         ok = PyArg_ParseTupleAndKeywords(args, kw, "|O:tolist", &keywords[1],
                                          &line_option);
@@ -356,40 +348,40 @@ parser_ast2list(PyAST_Object *self, PyObject *args, PyObject *kw)
             lineno = PyObject_IsTrue(line_option) ? 1 : 0;
         }
         /*
-         *  Convert AST into a tuple representation.  Use Guido's function,
+         *  Convert ST into a tuple representation.  Use Guido's function,
          *  since it's known to work already.
          */
-        res = node2tuple(self->ast_node,
+        res = node2tuple(self->st_node,
                          PyList_New, PyList_SetItem, lineno);
     }
     return (res);
 }
 
 
-/*  parser_compileast(PyObject* self, PyObject* args)
+/*  parser_compilest(PyObject* self, PyObject* args)
  *
  *  This function creates code objects from the parse tree represented by
  *  the passed-in data object.  An optional file name is passed in as well.
  *
  */
 static PyObject*
-parser_compileast(PyAST_Object *self, PyObject *args, PyObject *kw)
+parser_compilest(PyST_Object *self, PyObject *args, PyObject *kw)
 {
     PyObject*     res = 0;
-    char*         str = "<ast>";
+    char*         str = "<syntax-tree>";
     int ok;
 
     static char *keywords[] = {"ast", "filename", NULL};
 
     if (self == NULL)
-        ok = PyArg_ParseTupleAndKeywords(args, kw, "O!|s:compileast", keywords,
-                                         &PyAST_Type, &self, &str);
+        ok = PyArg_ParseTupleAndKeywords(args, kw, "O!|s:compilest", keywords,
+                                         &PyST_Type, &self, &str);
     else
         ok = PyArg_ParseTupleAndKeywords(args, kw, "|s:compile", &keywords[1],
                                          &str);
 
     if (ok)
-        res = (PyObject *)PyNode_Compile(self->ast_node, str);
+        res = (PyObject *)PyNode_Compile(self->st_node, str);
 
     return (res);
 }
@@ -398,12 +390,12 @@ parser_compileast(PyAST_Object *self, PyObject *args, PyObject *kw)
 /*  PyObject* parser_isexpr(PyObject* self, PyObject* args)
  *  PyObject* parser_issuite(PyObject* self, PyObject* args)
  *
- *  Checks the passed-in AST object to determine if it is an expression or
+ *  Checks the passed-in ST object to determine if it is an expression or
  *  a statement suite, respectively.  The return is a Python truth value.
  *
  */
 static PyObject*
-parser_isexpr(PyAST_Object *self, PyObject *args, PyObject *kw)
+parser_isexpr(PyST_Object *self, PyObject *args, PyObject *kw)
 {
     PyObject* res = 0;
     int ok;
@@ -412,13 +404,13 @@ parser_isexpr(PyAST_Object *self, PyObject *args, PyObject *kw)
 
     if (self == NULL)
         ok = PyArg_ParseTupleAndKeywords(args, kw, "O!:isexpr", keywords,
-                                         &PyAST_Type, &self);
+                                         &PyST_Type, &self);
     else
         ok = PyArg_ParseTupleAndKeywords(args, kw, ":isexpr", &keywords[1]);
 
     if (ok) {
-        /* Check to see if the AST represents an expression or not. */
-        res = (self->ast_type == PyAST_EXPR) ? Py_True : Py_False;
+        /* Check to see if the ST represents an expression or not. */
+        res = (self->st_type == PyST_EXPR) ? Py_True : Py_False;
         Py_INCREF(res);
     }
     return (res);
@@ -426,7 +418,7 @@ parser_isexpr(PyAST_Object *self, PyObject *args, PyObject *kw)
 
 
 static PyObject*
-parser_issuite(PyAST_Object *self, PyObject *args, PyObject *kw)
+parser_issuite(PyST_Object *self, PyObject *args, PyObject *kw)
 {
     PyObject* res = 0;
     int ok;
@@ -435,13 +427,13 @@ parser_issuite(PyAST_Object *self, PyObject *args, PyObject *kw)
 
     if (self == NULL)
         ok = PyArg_ParseTupleAndKeywords(args, kw, "O!:issuite", keywords,
-                                         &PyAST_Type, &self);
+                                         &PyST_Type, &self);
     else
         ok = PyArg_ParseTupleAndKeywords(args, kw, ":issuite", &keywords[1]);
 
     if (ok) {
-        /* Check to see if the AST represents an expression or not. */
-        res = (self->ast_type == PyAST_EXPR) ? Py_False : Py_True;
+        /* Check to see if the ST represents an expression or not. */
+        res = (self->st_type == PyST_EXPR) ? Py_False : Py_True;
         Py_INCREF(res);
     }
     return (res);
@@ -452,16 +444,16 @@ parser_issuite(PyAST_Object *self, PyObject *args, PyObject *kw)
 
 static PyMethodDef
 parser_methods[] = {
-    {"compile",         (PyCFunction)parser_compileast, PUBLIC_METHOD_TYPE,
-        "Compile this AST object into a code object."},
+    {"compile",         (PyCFunction)parser_compilest,  PUBLIC_METHOD_TYPE,
+        PyDoc_STR("Compile this ST object into a code object.")},
     {"isexpr",          (PyCFunction)parser_isexpr,     PUBLIC_METHOD_TYPE,
-        "Determines if this AST object was created from an expression."},
+        PyDoc_STR("Determines if this ST object was created from an expression.")},
     {"issuite",         (PyCFunction)parser_issuite,    PUBLIC_METHOD_TYPE,
-        "Determines if this AST object was created from a suite."},
-    {"tolist",          (PyCFunction)parser_ast2list,   PUBLIC_METHOD_TYPE,
-        "Creates a list-tree representation of this AST."},
-    {"totuple",         (PyCFunction)parser_ast2tuple,  PUBLIC_METHOD_TYPE,
-        "Creates a tuple-tree representation of this AST."},
+        PyDoc_STR("Determines if this ST object was created from a suite.")},
+    {"tolist",          (PyCFunction)parser_st2list,    PUBLIC_METHOD_TYPE,
+        PyDoc_STR("Creates a list-tree representation of this ST.")},
+    {"totuple",         (PyCFunction)parser_st2tuple,   PUBLIC_METHOD_TYPE,
+        PyDoc_STR("Creates a tuple-tree representation of this ST.")},
 
     {NULL, NULL, 0, NULL}
 };
@@ -489,7 +481,7 @@ err_string(char *message)
 /*  PyObject* parser_do_parse(PyObject* args, int type)
  *
  *  Internal function to actually execute the parse and return the result if
- *  successful, or set an exception if not.
+ *  successful or set an exception if not.
  *
  */
 static PyObject*
@@ -502,13 +494,11 @@ parser_do_parse(PyObject *args, PyObject *kw, char *argspec, int type)
 
     if (PyArg_ParseTupleAndKeywords(args, kw, argspec, keywords, &string)) {
         node* n = PyParser_SimpleParseString(string,
-                                             (type == PyAST_EXPR)
+                                             (type == PyST_EXPR)
                                              ? eval_input : file_input);
 
-        if (n != 0)
-            res = parser_newastobject(n, type);
-        else
-            err_string("Could not parse string.");
+	if (n)
+	    res = parser_newstobject(n, type);
     }
     return (res);
 }
@@ -523,23 +513,23 @@ parser_do_parse(PyObject *args, PyObject *kw, char *argspec, int type)
  *
  */
 static PyObject*
-parser_expr(PyAST_Object *self, PyObject *args, PyObject *kw)
+parser_expr(PyST_Object *self, PyObject *args, PyObject *kw)
 {
     NOTE(ARGUNUSED(self))
-    return (parser_do_parse(args, kw, "s:expr", PyAST_EXPR));
+    return (parser_do_parse(args, kw, "s:expr", PyST_EXPR));
 }
 
 
 static PyObject*
-parser_suite(PyAST_Object *self, PyObject *args, PyObject *kw)
+parser_suite(PyST_Object *self, PyObject *args, PyObject *kw)
 {
     NOTE(ARGUNUSED(self))
-    return (parser_do_parse(args, kw, "s:suite", PyAST_SUITE));
+    return (parser_do_parse(args, kw, "s:suite", PyST_SUITE));
 }
 
 
 
-/*  This is the messy part of the code.  Conversion from a tuple to an AST
+/*  This is the messy part of the code.  Conversion from a tuple to an ST
  *  object requires that the input tuple be valid without having to rely on
  *  catching an exception from the compiler.  This is done to allow the
  *  compiler itself to remain fast, since most of its input will come from
@@ -549,47 +539,47 @@ parser_suite(PyAST_Object *self, PyObject *args, PyObject *kw)
  *
  *  Two aspects can be broken out in this code:  creating a node tree from
  *  the tuple passed in, and verifying that it is indeed valid.  It may be
- *  advantageous to expand the number of AST types to include funcdefs and
- *  lambdadefs to take advantage of the optimizer, recognizing those ASTs
+ *  advantageous to expand the number of ST types to include funcdefs and
+ *  lambdadefs to take advantage of the optimizer, recognizing those STs
  *  here.  They are not necessary, and not quite as useful in a raw form.
  *  For now, let's get expressions and suites working reliably.
  */
 
 
-staticforward node* build_node_tree(PyObject *tuple);
-staticforward int   validate_expr_tree(node *tree);
-staticforward int   validate_file_input(node *tree);
+static node* build_node_tree(PyObject *tuple);
+static int   validate_expr_tree(node *tree);
+static int   validate_file_input(node *tree);
+static int   validate_encoding_decl(node *tree);
 
-
-/*  PyObject* parser_tuple2ast(PyObject* self, PyObject* args)
+/*  PyObject* parser_tuple2st(PyObject* self, PyObject* args)
  *
  *  This is the public function, called from the Python code.  It receives a
- *  single tuple object from the caller, and creates an AST object if the
+ *  single tuple object from the caller, and creates an ST object if the
  *  tuple can be validated.  It does this by checking the first code of the
  *  tuple, and, if acceptable, builds the internal representation.  If this
  *  step succeeds, the internal representation is validated as fully as
  *  possible with the various validate_*() routines defined below.
  *
- *  This function must be changed if support is to be added for PyAST_FRAGMENT
- *  AST objects.
+ *  This function must be changed if support is to be added for PyST_FRAGMENT
+ *  ST objects.
  *
  */
 static PyObject*
-parser_tuple2ast(PyAST_Object *self, PyObject *args, PyObject *kw)
+parser_tuple2st(PyST_Object *self, PyObject *args, PyObject *kw)
 {
     NOTE(ARGUNUSED(self))
-    PyObject *ast = 0;
+    PyObject *st = 0;
     PyObject *tuple;
     node *tree;
 
     static char *keywords[] = {"sequence", NULL};
 
-    if (!PyArg_ParseTupleAndKeywords(args, kw, "O:sequence2ast", keywords,
+    if (!PyArg_ParseTupleAndKeywords(args, kw, "O:sequence2st", keywords,
                                      &tuple))
         return (0);
     if (!PySequence_Check(tuple)) {
         PyErr_SetString(PyExc_ValueError,
-                        "sequence2ast() requires a single sequence argument");
+                        "sequence2st() requires a single sequence argument");
         return (0);
     }
     /*
@@ -601,26 +591,37 @@ parser_tuple2ast(PyAST_Object *self, PyObject *args, PyObject *kw)
         if (start_sym == eval_input) {
             /*  Might be an eval form.  */
             if (validate_expr_tree(tree))
-                ast = parser_newastobject(tree, PyAST_EXPR);
+                st = parser_newstobject(tree, PyST_EXPR);
+            else
+                PyNode_Free(tree);
         }
         else if (start_sym == file_input) {
             /*  This looks like an exec form so far.  */
             if (validate_file_input(tree))
-                ast = parser_newastobject(tree, PyAST_SUITE);
+                st = parser_newstobject(tree, PyST_SUITE);
+            else
+                PyNode_Free(tree);
+        }
+        else if (start_sym == encoding_decl) {
+            /* This looks like an encoding_decl so far. */
+            if (validate_encoding_decl(tree))
+                st = parser_newstobject(tree, PyST_SUITE);
+            else
+                PyNode_Free(tree);
         }
         else {
             /*  This is a fragment, at best. */
             PyNode_Free(tree);
-            err_string("Parse tree does not use a valid start symbol.");
+            err_string("parse tree does not use a valid start symbol");
         }
     }
     /*  Make sure we throw an exception on all errors.  We should never
      *  get this, but we'd do well to be sure something is done.
      */
-    if ((ast == 0) && !PyErr_Occurred())
-        err_string("Unspecified ast error occurred.");
+    if (st == NULL && !PyErr_Occurred())
+        err_string("unspecified ST error occurred");
 
-    return (ast);
+    return st;
 }
 
 
@@ -636,7 +637,7 @@ static node*
 build_node_children(PyObject *tuple, node *root, int *line_num)
 {
     int len = PyObject_Size(tuple);
-    int i;
+    int i, err;
 
     for (i = 1; i < len; ++i) {
         /* elem must always be a sequence, however simple */
@@ -670,7 +671,7 @@ build_node_children(PyObject *tuple, node *root, int *line_num)
             PyObject *temp;
 
             if ((len != 2) && (len != 3)) {
-                err_string("Terminal nodes must have 2 or 3 entries.");
+                err_string("terminal nodes must have 2 or 3 entries");
                 return 0;
             }
             temp = PySequence_GetItem(elem, 1);
@@ -678,9 +679,9 @@ build_node_children(PyObject *tuple, node *root, int *line_num)
                 return 0;
             if (!PyString_Check(temp)) {
                 PyErr_Format(parser_error,
-                             "Second item in terminal node must be a string,"
-                             " found %s.",
-                             ((PyTypeObject*)PyObject_Type(temp))->tp_name);
+                             "second item in terminal node must be a string,"
+                             " found %s",
+                             temp->ob_type->tp_name);
                 Py_DECREF(temp);
                 return 0;
             }
@@ -691,9 +692,9 @@ build_node_children(PyObject *tuple, node *root, int *line_num)
                         *line_num = PyInt_AS_LONG(o);
                     else {
                         PyErr_Format(parser_error,
-                                     "Third item in terminal node must be an"
-                                     " integer, found %s.",
-                                ((PyTypeObject*)PyObject_Type(temp))->tp_name);
+                                     "third item in terminal node must be an"
+                                     " integer, found %s",
+				     temp->ob_type->tp_name);
                         Py_DECREF(o);
                         Py_DECREF(temp);
                         return 0;
@@ -713,11 +714,21 @@ build_node_children(PyObject *tuple, node *root, int *line_num)
              *  Throw an exception.
              */
             PyErr_SetObject(parser_error,
-                            Py_BuildValue("os", elem, "Unknown node type."));
+                            Py_BuildValue("os", elem, "unknown node type."));
             Py_XDECREF(elem);
             return (0);
         }
-        PyNode_AddChild(root, type, strn, *line_num);
+        err = PyNode_AddChild(root, type, strn, *line_num);
+        if (err == E_NOMEM) {
+            PyMem_DEL(strn);
+            return (node *) PyErr_NoMemory();
+        }
+        if (err == E_OVERFLOW) {
+            PyMem_DEL(strn);
+            PyErr_SetString(PyExc_ValueError,
+                            "unsupported number of child nodes");
+            return NULL;
+        }
 
         if (ISNONTERMINAL(type)) {
             node* new_child = CHILD(root, i - 1);
@@ -752,7 +763,7 @@ build_node_tree(PyObject *tuple)
          *  Throw an exception now and be done with it.
          */
         tuple = Py_BuildValue("os", tuple,
-                      "Illegal ast tuple; cannot start with terminal symbol.");
+                    "Illegal syntax-tree; cannot start with terminal symbol.");
         PyErr_SetObject(parser_error, tuple);
     }
     else if (ISNONTERMINAL(num)) {
@@ -760,11 +771,28 @@ build_node_tree(PyObject *tuple)
          *  Not efficient, but that can be handled later.
          */
         int line_num = 0;
+        PyObject *encoding = NULL;
 
+        if (num == encoding_decl) {
+            encoding = PySequence_GetItem(tuple, 2);
+            /* tuple isn't borrowed anymore here, need to DECREF */
+            tuple = PySequence_GetSlice(tuple, 0, 2);
+        }
         res = PyNode_New(num);
-        if (res != build_node_children(tuple, res, &line_num)) {
-            PyNode_Free(res);
-            res = 0;
+        if (res != NULL) {
+            if (res != build_node_children(tuple, res, &line_num)) {
+                PyNode_Free(res);
+                res = NULL;
+            }
+            if (res && encoding) {
+                int len;
+                len = PyString_GET_SIZE(encoding) + 1;
+                res->n_str = (char *)PyMem_MALLOC(len);
+                if (res->n_str != NULL)
+                    (void) memcpy(res->n_str, PyString_AS_STRING(encoding), len);
+                Py_DECREF(encoding);
+                Py_DECREF(tuple);
+            }
         }
     }
     else
@@ -783,7 +811,7 @@ build_node_tree(PyObject *tuple)
 /*
  *  Validation routines used within the validation section:
  */
-staticforward int validate_terminal(node *terminal, int type, char *string);
+static int validate_terminal(node *terminal, int type, char *string);
 
 #define validate_ampersand(ch)  validate_terminal(ch,      AMPER, "&")
 #define validate_circumflex(ch) validate_terminal(ch, CIRCUMFLEX, "^")
@@ -830,7 +858,8 @@ VALIDATER(trailer);             VALIDATER(subscript);
 VALIDATER(subscriptlist);       VALIDATER(sliceop);
 VALIDATER(exprlist);            VALIDATER(dictmaker);
 VALIDATER(arglist);             VALIDATER(argument);
-VALIDATER(listmaker);
+VALIDATER(listmaker);           VALIDATER(yield_stmt);
+VALIDATER(testlist1);
 
 #undef VALIDATER
 
@@ -1043,6 +1072,22 @@ validate_testlist(node *tree)
 }
 
 
+static int
+validate_testlist1(node *tree)
+{
+    return (validate_repeating_list(tree, testlist1,
+                                    validate_test, "testlist1"));
+}
+
+
+static int
+validate_testlist_safe(node *tree)
+{
+    return (validate_repeating_list(tree, testlist_safe,
+                                    validate_test, "testlist_safe"));
+}
+
+
 /* '*' NAME [',' '**' NAME] | '**' NAME
  */
 static int
@@ -1098,12 +1143,17 @@ validate_varargslist(node *tree)
     int res = validate_ntype(tree, varargslist) && (nch != 0);
     int sym;
 
+    if (!res)
+        return 0;
     if (nch < 1) {
         err_string("varargslist missing child nodes");
         return 0;
     }
     sym = TYPE(CHILD(tree, 0));
     if (sym == STAR || sym == DOUBLESTAR)
+        /* whole thing matches:
+         *      '*' NAME [',' '**' NAME] | '**' NAME
+         */
         res = validate_varargslist_trailer(tree, 0);
     else if (sym == fpdef) {
         int i = 0;
@@ -1127,11 +1177,16 @@ validate_varargslist(node *tree)
                 }
                 if (res && i < nch) {
                     res = validate_comma(CHILD(tree, i));
-                    if (res)
-                        ++i;
+                    ++i;
+                    if (res && i < nch
+                        && (TYPE(CHILD(tree, i)) == DOUBLESTAR
+                            || TYPE(CHILD(tree, i)) == STAR))
+                        break;
                 }
             }
-            /* handle '*' NAME [',' '**' NAME] | '**' NAME */
+            /* ... '*' NAME [',' '**' NAME] | '**' NAME
+             * i --^^^
+             */
             if (res)
                 res = validate_varargslist_trailer(tree, i);
         }
@@ -1139,6 +1194,7 @@ validate_varargslist(node *tree)
             /*
              *  fpdef ['=' test] (',' fpdef ['=' test])* [',']
              */
+            /* strip trailing comma node */
             if (sym == COMMA) {
                 res = validate_comma(CHILD(tree, nch-1));
                 if (!res)
@@ -1150,9 +1206,9 @@ validate_varargslist(node *tree)
              */
             res = validate_fpdef(CHILD(tree, 0));
             ++i;
-            if (res && (i+2 < nch) && TYPE(CHILD(tree, 1)) == EQUAL) {
-                res = (validate_equal(CHILD(tree, 1))
-                       && validate_test(CHILD(tree, 2)));
+            if (res && (i+2 <= nch) && TYPE(CHILD(tree, i)) == EQUAL) {
+                res = (validate_equal(CHILD(tree, i))
+                       && validate_test(CHILD(tree, i+1)));
                 i += 2;
             }
             /*
@@ -1163,12 +1219,10 @@ validate_varargslist(node *tree)
                 res = (validate_comma(CHILD(tree, i))
                        && validate_fpdef(CHILD(tree, i+1)));
                 i += 2;
-                if (res && (nch - i) >= 2
-                    && TYPE(CHILD(tree, i)) == COMMA) {
-                    res = (validate_comma(CHILD(tree, i))
+                if (res && (nch - i) >= 2 && TYPE(CHILD(tree, i)) == EQUAL) {
+                    res = (validate_equal(CHILD(tree, i))
                            && validate_test(CHILD(tree, i+1)));
-                    if (res)
-                        i += 2;
+                    i += 2;
                 }
             }
             if (res && nch - i != 0) {
@@ -1213,7 +1267,7 @@ validate_list_for(node *tree)
         res = (validate_name(CHILD(tree, 0), "for")
                && validate_exprlist(CHILD(tree, 1))
                && validate_name(CHILD(tree, 2), "in")
-               && validate_testlist(CHILD(tree, 3)));
+               && validate_testlist_safe(CHILD(tree, 3)));
 
     return res;
 }
@@ -1408,6 +1462,7 @@ validate_expr_stmt(node *tree)
                    || strcmp(s, "-=") == 0
                    || strcmp(s, "*=") == 0
                    || strcmp(s, "/=") == 0
+                   || strcmp(s, "//=") == 0
                    || strcmp(s, "%=") == 0
                    || strcmp(s, "&=") == 0
                    || strcmp(s, "|=") == 0
@@ -1529,6 +1584,18 @@ validate_raise_stmt(node *tree)
 }
 
 
+/* yield_stmt: 'yield' testlist
+ */
+static int
+validate_yield_stmt(node *tree)
+{
+    return (validate_ntype(tree, yield_stmt)
+            && validate_numnodes(tree, 2, "yield_stmt")
+            && validate_name(CHILD(tree, 0), "yield")
+            && validate_testlist(CHILD(tree, 1)));
+}
+
+
 static int
 validate_import_as_name(node *tree)
 {
@@ -1549,6 +1616,25 @@ validate_import_as_name(node *tree)
 }
 
 
+/* dotted_name:  NAME ("." NAME)*
+ */
+static int
+validate_dotted_name(node *tree)
+{
+    int nch = NCH(tree);
+    int res = (validate_ntype(tree, dotted_name)
+               && is_odd(nch)
+               && validate_name(CHILD(tree, 0), NULL));
+    int i;
+
+    for (i = 1; res && (i < nch); i += 2) {
+        res = (validate_dot(CHILD(tree, i))
+               && validate_name(CHILD(tree, i+1), NULL));
+    }
+    return res;
+}
+
+
 /* dotted_as_name:  dotted_name [NAME NAME]
  */
 static int
@@ -1559,14 +1645,14 @@ validate_dotted_as_name(node *tree)
 
     if (res) {
         if (nch == 1)
-            res = validate_ntype(CHILD(tree, 0), dotted_name);
+            res = validate_dotted_name(CHILD(tree, 0));
         else if (nch == 3)
-            res = (validate_ntype(CHILD(tree, 0), dotted_name)
+            res = (validate_dotted_name(CHILD(tree, 0))
                    && validate_name(CHILD(tree, 1), "as")
                    && validate_name(CHILD(tree, 2), NULL));
         else {
             res = 0;
-            err_string("Illegal number of children for dotted_as_name.");
+            err_string("illegal number of children for dotted_as_name");
         }
     }
     return res;
@@ -1592,12 +1678,12 @@ validate_import_stmt(node *tree)
         res = validate_dotted_as_name(CHILD(tree, 1));
         for (j = 2; res && (j < nch); j += 2)
             res = (validate_comma(CHILD(tree, j))
-                   && validate_ntype(CHILD(tree, j + 1), dotted_name));
+                   && validate_dotted_as_name(CHILD(tree, j + 1)));
     }
     else if (res && (res = validate_name(CHILD(tree, 0), "from"))) {
         res = ((nch >= 4) && is_even(nch)
-               && validate_name(CHILD(tree, 2), "import")
-               && validate_dotted_as_name(CHILD(tree, 1)));
+               && validate_dotted_name(CHILD(tree, 1))
+               && validate_name(CHILD(tree, 2), "import"));
         if (nch == 4) {
             if (TYPE(CHILD(tree, 3)) == import_as_name)
                 res = validate_import_as_name(CHILD(tree, 3));
@@ -1630,6 +1716,9 @@ validate_global_stmt(node *tree)
     int res = (validate_ntype(tree, global_stmt)
                && is_even(nch) && (nch >= 2));
 
+    if (!res && !PyErr_Occurred())
+        err_string("illegal global statement");
+
     if (res)
         res = (validate_name(CHILD(tree, 0), "global")
                && validate_ntype(CHILD(tree, 1), NAME));
@@ -1655,7 +1744,7 @@ validate_exec_stmt(node *tree)
                && validate_expr(CHILD(tree, 1)));
 
     if (!res && !PyErr_Occurred())
-        err_string("Illegal exec statement.");
+        err_string("illegal exec statement");
     if (res && (nch > 2))
         res = (validate_name(CHILD(tree, 2), "in")
                && validate_test(CHILD(tree, 3)));
@@ -1677,12 +1766,11 @@ validate_assert_stmt(node *tree)
     int nch = NCH(tree);
     int res = (validate_ntype(tree, assert_stmt)
                && ((nch == 2) || (nch == 4))
-               && (validate_name(CHILD(tree, 0), "__assert__") ||
-                   validate_name(CHILD(tree, 0), "assert"))
+               && (validate_name(CHILD(tree, 0), "assert"))
                && validate_test(CHILD(tree, 1)));
 
     if (!res && !PyErr_Occurred())
-        err_string("Illegal assert statement.");
+        err_string("illegal assert statement");
     if (res && (nch > 2))
         res = (validate_comma(CHILD(tree, 2))
                && validate_test(CHILD(tree, 3)));
@@ -1778,7 +1866,7 @@ validate_try(node *tree)
                 res = ((strcmp(STR(CHILD(tree, pos)), "except") == 0)
                        || (strcmp(STR(CHILD(tree, pos)), "else") == 0));
                 if (!res)
-                    err_string("Illegal trailing triple in try statement.");
+                    err_string("illegal trailing triple in try statement");
             }
             else if (nch == (pos + 6)) {
                 res = (validate_name(CHILD(tree, pos), "except")
@@ -1912,11 +2000,11 @@ validate_comp_op(node *tree)
                      || (strcmp(STR(tree), "is") == 0));
               if (!res) {
                   PyErr_Format(parser_error,
-                               "Illegal operator: '%s'.", STR(tree));
+                               "illegal operator '%s'", STR(tree));
               }
               break;
           default:
-              err_string("Illegal comparison operator type.");
+              err_string("illegal comparison operator type");
               break;
         }
     }
@@ -1928,7 +2016,7 @@ validate_comp_op(node *tree)
                    || ((strcmp(STR(CHILD(tree, 0)), "not") == 0)
                        && (strcmp(STR(CHILD(tree, 1)), "in") == 0))));
         if (!res && !PyErr_Occurred())
-            err_string("Unknown comparison operator.");
+            err_string("unknown comparison operator");
     }
     return (res);
 }
@@ -2032,6 +2120,7 @@ validate_term(node *tree)
     for ( ; res && (pos < nch); pos += 2)
         res = (((TYPE(CHILD(tree, pos)) == STAR)
                || (TYPE(CHILD(tree, pos)) == SLASH)
+               || (TYPE(CHILD(tree, pos)) == DOUBLESLASH)
                || (TYPE(CHILD(tree, pos)) == PERCENT))
                && validate_factor(CHILD(tree, pos + 1)));
 
@@ -2075,7 +2164,7 @@ validate_power(node *tree)
         res = validate_trailer(CHILD(tree, pos++));
     if (res && (pos < nch)) {
         if (!is_even(nch - pos)) {
-            err_string("Illegal number of nodes for 'power'.");
+            err_string("illegal number of nodes for 'power'");
             return (0);
         }
         for ( ; res && (pos < (nch - 1)); pos += 2)
@@ -2124,7 +2213,7 @@ validate_atom(node *tree)
             break;
           case BACKQUOTE:
             res = ((nch == 3)
-                   && validate_testlist(CHILD(tree, 1))
+                   && validate_testlist1(CHILD(tree, 1))
                    && validate_ntype(CHILD(tree, 2), BACKQUOTE));
             break;
           case NAME:
@@ -2496,7 +2585,7 @@ validate_node(node *tree)
     int   res  = 1;                     /* result value                   */
     node* next = 0;                     /* node to process after this one */
 
-    while (res & (tree != 0)) {
+    while (res && (tree != 0)) {
         nch  = NCH(tree);
         next = 0;
         switch (TYPE(tree)) {
@@ -2527,12 +2616,16 @@ validate_node(node *tree)
             res  = (validate_numnodes(tree, 1, "flow_stmt")
                     && ((TYPE(CHILD(tree, 0)) == break_stmt)
                         || (TYPE(CHILD(tree, 0)) == continue_stmt)
+                        || (TYPE(CHILD(tree, 0)) == yield_stmt)
                         || (TYPE(CHILD(tree, 0)) == return_stmt)
                         || (TYPE(CHILD(tree, 0)) == raise_stmt)));
             if (res)
                 next = CHILD(tree, 0);
             else if (nch == 1)
-                err_string("Illegal flow_stmt type.");
+                err_string("illegal flow_stmt type");
+            break;
+          case yield_stmt:
+            res = validate_yield_stmt(tree);
             break;
             /*
              *  Compound statements.
@@ -2606,6 +2699,9 @@ validate_node(node *tree)
           case testlist:
             res = validate_testlist(tree);
             break;
+          case testlist1:
+            res = validate_testlist1(tree);
+            break;
           case test:
             res = validate_test(tree);
             break;
@@ -2654,7 +2750,7 @@ validate_node(node *tree)
 
           default:
             /* Hopefully never reached! */
-            err_string("Unrecogniged node type.");
+            err_string("unrecognized node type");
             res = 0;
             break;
         }
@@ -2670,7 +2766,7 @@ validate_expr_tree(node *tree)
     int res = validate_eval_input(tree);
 
     if (!res && !PyErr_Occurred())
-        err_string("Could not validate expression tuple.");
+        err_string("could not validate expression tuple");
 
     return (res);
 }
@@ -2682,12 +2778,12 @@ validate_expr_tree(node *tree)
 static int
 validate_file_input(node *tree)
 {
-    int j   = 0;
+    int j;
     int nch = NCH(tree) - 1;
     int res = ((nch >= 0)
                && validate_ntype(CHILD(tree, nch), ENDMARKER));
 
-    for ( ; res && (j < nch); ++j) {
+    for (j = 0; res && (j < nch); ++j) {
         if (TYPE(CHILD(tree, j)) == stmt)
             res = validate_stmt(CHILD(tree, j));
         else
@@ -2698,11 +2794,23 @@ validate_file_input(node *tree)
      *  this, we have some debugging to do.
      */
     if (!res && !PyErr_Occurred())
-        err_string("VALIDATION FAILURE: report this to the maintainer!.");
+        err_string("VALIDATION FAILURE: report this to the maintainer!");
 
     return (res);
 }
 
+static int
+validate_encoding_decl(node *tree)
+{
+    int nch = NCH(tree);
+    int res = ((nch == 1)
+        && validate_file_input(CHILD(tree, 0)));
+
+    if (!res && !PyErr_Occurred())
+        err_string("Error Parsing encoding_decl");
+
+    return res;
+}
 
 static PyObject*
 pickle_constructor = NULL;
@@ -2713,18 +2821,18 @@ parser__pickler(PyObject *self, PyObject *args)
 {
     NOTE(ARGUNUSED(self))
     PyObject *result = NULL;
-    PyObject *ast = NULL;
+    PyObject *st = NULL;
     PyObject *empty_dict = NULL;
 
-    if (PyArg_ParseTuple(args, "O!:_pickler", &PyAST_Type, &ast)) {
+    if (PyArg_ParseTuple(args, "O!:_pickler", &PyST_Type, &st)) {
         PyObject *newargs;
         PyObject *tuple;
 
         if ((empty_dict = PyDict_New()) == NULL)
             goto finally;
-        if ((newargs = Py_BuildValue("Oi", ast, 1)) == NULL)
+        if ((newargs = Py_BuildValue("Oi", st, 1)) == NULL)
             goto finally;
-        tuple = parser_ast2tuple((PyAST_Object*)NULL, newargs, empty_dict);
+        tuple = parser_st2tuple((PyST_Object*)NULL, newargs, empty_dict);
         if (tuple != NULL) {
             result = Py_BuildValue("O(O)", pickle_constructor, tuple);
             Py_DECREF(tuple);
@@ -2740,91 +2848,110 @@ parser__pickler(PyObject *self, PyObject *args)
 
 
 /*  Functions exported by this module.  Most of this should probably
- *  be converted into an AST object with methods, but that is better
+ *  be converted into an ST object with methods, but that is better
  *  done directly in Python, allowing subclasses to be created directly.
  *  We'd really have to write a wrapper around it all anyway to allow
  *  inheritance.
  */
 static PyMethodDef parser_functions[] =  {
-    {"ast2tuple",       (PyCFunction)parser_ast2tuple,  PUBLIC_METHOD_TYPE,
-        "Creates a tuple-tree representation of an AST."},
-    {"ast2list",        (PyCFunction)parser_ast2list,   PUBLIC_METHOD_TYPE,
-        "Creates a list-tree representation of an AST."},
-    {"compileast",      (PyCFunction)parser_compileast, PUBLIC_METHOD_TYPE,
-        "Compiles an AST object into a code object."},
-    {"expr",            (PyCFunction)parser_expr,       PUBLIC_METHOD_TYPE,
-        "Creates an AST object from an expression."},
-    {"isexpr",          (PyCFunction)parser_isexpr,     PUBLIC_METHOD_TYPE,
-        "Determines if an AST object was created from an expression."},
-    {"issuite",         (PyCFunction)parser_issuite,    PUBLIC_METHOD_TYPE,
-        "Determines if an AST object was created from a suite."},
-    {"suite",           (PyCFunction)parser_suite,      PUBLIC_METHOD_TYPE,
-        "Creates an AST object from a suite."},
-    {"sequence2ast",    (PyCFunction)parser_tuple2ast,  PUBLIC_METHOD_TYPE,
-        "Creates an AST object from a tree representation."},
-    {"tuple2ast",       (PyCFunction)parser_tuple2ast,  PUBLIC_METHOD_TYPE,
-        "Creates an AST object from a tree representation."},
+    {"ast2tuple",       (PyCFunction)parser_st2tuple,  PUBLIC_METHOD_TYPE,
+        PyDoc_STR("Creates a tuple-tree representation of an ST.")},
+    {"ast2list",        (PyCFunction)parser_st2list,   PUBLIC_METHOD_TYPE,
+        PyDoc_STR("Creates a list-tree representation of an ST.")},
+    {"compileast",      (PyCFunction)parser_compilest, PUBLIC_METHOD_TYPE,
+        PyDoc_STR("Compiles an ST object into a code object.")},
+    {"compilest",      (PyCFunction)parser_compilest,  PUBLIC_METHOD_TYPE,
+        PyDoc_STR("Compiles an ST object into a code object.")},
+    {"expr",            (PyCFunction)parser_expr,      PUBLIC_METHOD_TYPE,
+        PyDoc_STR("Creates an ST object from an expression.")},
+    {"isexpr",          (PyCFunction)parser_isexpr,    PUBLIC_METHOD_TYPE,
+        PyDoc_STR("Determines if an ST object was created from an expression.")},
+    {"issuite",         (PyCFunction)parser_issuite,   PUBLIC_METHOD_TYPE,
+        PyDoc_STR("Determines if an ST object was created from a suite.")},
+    {"suite",           (PyCFunction)parser_suite,     PUBLIC_METHOD_TYPE,
+        PyDoc_STR("Creates an ST object from a suite.")},
+    {"sequence2ast",    (PyCFunction)parser_tuple2st,  PUBLIC_METHOD_TYPE,
+        PyDoc_STR("Creates an ST object from a tree representation.")},
+    {"sequence2st",     (PyCFunction)parser_tuple2st,  PUBLIC_METHOD_TYPE,
+        PyDoc_STR("Creates an ST object from a tree representation.")},
+    {"st2tuple",        (PyCFunction)parser_st2tuple,  PUBLIC_METHOD_TYPE,
+        PyDoc_STR("Creates a tuple-tree representation of an ST.")},
+    {"st2list",         (PyCFunction)parser_st2list,   PUBLIC_METHOD_TYPE,
+        PyDoc_STR("Creates a list-tree representation of an ST.")},
+    {"tuple2ast",       (PyCFunction)parser_tuple2st,  PUBLIC_METHOD_TYPE,
+        PyDoc_STR("Creates an ST object from a tree representation.")},
+    {"tuple2st",        (PyCFunction)parser_tuple2st,  PUBLIC_METHOD_TYPE,
+        PyDoc_STR("Creates an ST object from a tree representation.")},
 
     /* private stuff: support pickle module */
-    {"_pickler",        (PyCFunction)parser__pickler,   METH_VARARGS,
-        "Returns the pickle magic to allow ast objects to be pickled."},
+    {"_pickler",        (PyCFunction)parser__pickler,  METH_VARARGS,
+        PyDoc_STR("Returns the pickle magic to allow ST objects to be pickled.")},
 
     {NULL, NULL, 0, NULL}
     };
 
 
-DL_EXPORT(void) initparser(void);  /* supply a prototype */
+PyMODINIT_FUNC initparser(void);  /* supply a prototype */
 
-DL_EXPORT(void)
+PyMODINIT_FUNC
 initparser(void)
 {
-    PyObject* module;
-    PyObject* dict;
-        
-    PyAST_Type.ob_type = &PyType_Type;
+    PyObject *module, *copyreg;
+
+    PyST_Type.ob_type = &PyType_Type;
     module = Py_InitModule("parser", parser_functions);
-    dict = PyModule_GetDict(module);
 
     if (parser_error == 0)
         parser_error = PyErr_NewException("parser.ParserError", NULL, NULL);
 
-    if ((parser_error == 0)
-        || (PyDict_SetItemString(dict, "ParserError", parser_error) != 0))
-    {
-	    /* caller will check PyErr_Occurred() */
-	    return;
-    }
-    /*
-     *  Nice to have, but don't cry if we fail.
+    if (parser_error == 0)
+        /* caller will check PyErr_Occurred() */
+        return;
+    /* CAUTION:  The code next used to skip bumping the refcount on
+     * parser_error.  That's a disaster if initparser() gets called more
+     * than once.  By incref'ing, we ensure that each module dict that
+     * gets created owns its reference to the shared parser_error object,
+     * and the file static parser_error vrbl owns a reference too.
      */
-    Py_INCREF(&PyAST_Type);
-    PyDict_SetItemString(dict, "ASTType", (PyObject*)&PyAST_Type);
+    Py_INCREF(parser_error);
+    if (PyModule_AddObject(module, "ParserError", parser_error) != 0)
+        return;
 
-    PyDict_SetItemString(dict, "__copyright__",
-                         PyString_FromString(parser_copyright_string));
-    PyDict_SetItemString(dict, "__doc__",
-                         PyString_FromString(parser_doc_string));
-    PyDict_SetItemString(dict, "__version__",
-                         PyString_FromString(parser_version_string));
+    Py_INCREF(&PyST_Type);
+    PyModule_AddObject(module, "ASTType", (PyObject*)&PyST_Type);
+    Py_INCREF(&PyST_Type);
+    PyModule_AddObject(module, "STType", (PyObject*)&PyST_Type);
 
-    /* register to support pickling */
-    module = PyImport_ImportModule("copy_reg");
-    if (module != NULL) {
+    PyModule_AddStringConstant(module, "__copyright__",
+                               parser_copyright_string);
+    PyModule_AddStringConstant(module, "__doc__",
+                               parser_doc_string);
+    PyModule_AddStringConstant(module, "__version__",
+                               parser_version_string);
+
+    /* Register to support pickling.
+     * If this fails, the import of this module will fail because an
+     * exception will be raised here; should we clear the exception?
+     */
+    copyreg = PyImport_ImportModule("copy_reg");
+    if (copyreg != NULL) {
         PyObject *func, *pickler;
 
-        func = PyObject_GetAttrString(module, "pickle");
-        pickle_constructor = PyDict_GetItemString(dict, "sequence2ast");
-        pickler = PyDict_GetItemString(dict, "_pickler");
+        func = PyObject_GetAttrString(copyreg, "pickle");
+        pickle_constructor = PyObject_GetAttrString(module, "sequence2st");
+        pickler = PyObject_GetAttrString(module, "_pickler");
         Py_XINCREF(pickle_constructor);
         if ((func != NULL) && (pickle_constructor != NULL)
             && (pickler != NULL)) {
             PyObject *res;
 
-            res = PyObject_CallFunction(
-                    func, "OOO", &PyAST_Type, pickler, pickle_constructor);
+            res = PyObject_CallFunction(func, "OOO", &PyST_Type, pickler,
+                                        pickle_constructor);
             Py_XDECREF(res);
         }
         Py_XDECREF(func);
-        Py_DECREF(module);
+        Py_XDECREF(pickle_constructor);
+        Py_XDECREF(pickler);
+        Py_DECREF(copyreg);
     }
 }

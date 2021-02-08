@@ -1,4 +1,7 @@
 FROM LIB:c.o "gennmtab/gennmtab.o"
 TO "gennmtab/gennmtab"
-LIB LIB:sc.lib LIB:amiga.lib
+LIB LIB:scm881nb.lib
+    LIB:scnb.lib LIB:amiga.lib
+QUIET
+NOICONS
 

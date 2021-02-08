@@ -4,20 +4,20 @@ Cathedral City, California Republic, United States of America.
 
                         All Rights Reserved
 
-Permission to use, copy, modify, and distribute this software and its 
-documentation for any purpose and without fee is hereby granted, 
+Permission to use, copy, modify, and distribute this software and its
+documentation for any purpose and without fee is hereby granted,
 provided that the above copyright notice appear in all copies and that
-both that copyright notice and this permission notice appear in 
+both that copyright notice and this permission notice appear in
 supporting documentation, and that the name of Lance Ellinghouse
-not be used in advertising or publicity pertaining to distribution 
+not be used in advertising or publicity pertaining to distribution
 of the software without specific, written prior permission.
 
 LANCE ELLINGHOUSE DISCLAIMS ALL WARRANTIES WITH REGARD TO
 THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
-FITNESS, IN NO EVENT SHALL LANCE ELLINGHOUSE BE LIABLE FOR ANY SPECIAL, 
-INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING 
-FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, 
-NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION 
+FITNESS, IN NO EVENT SHALL LANCE ELLINGHOUSE BE LIABLE FOR ANY SPECIAL,
+INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING
+FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT,
+NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION
 WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 ******************************************************************/
@@ -54,9 +54,8 @@ Revision history:
 /*  only one instance, only one syslog, so globals should be ok  */
 static PyObject *S_ident_o = NULL;			/*  identifier, held by openlog()  */
 
-
 #ifndef INET225
-static PyObject * 
+static PyObject *
 syslog_openlog(PyObject * self, PyObject * args)
 {
 	long logopt = 0;
@@ -81,8 +80,7 @@ syslog_openlog(PyObject * self, PyObject * args)
 }
 #endif /* !INET225 */
 
-
-static PyObject * 
+static PyObject *
 syslog_syslog(PyObject * self, PyObject * args)
 {
 	char *message;
@@ -102,7 +100,7 @@ syslog_syslog(PyObject * self, PyObject * args)
 }
 
 #ifndef INET225
-static PyObject * 
+static PyObject *
 syslog_closelog(PyObject *self, PyObject *args)
 {
 	if (!PyArg_ParseTuple(args, ":closelog"))
@@ -114,7 +112,7 @@ syslog_closelog(PyObject *self, PyObject *args)
 	return Py_None;
 }
 
-static PyObject * 
+static PyObject *
 syslog_setlogmask(PyObject *self, PyObject *args)
 {
 	long maskpri, omaskpri;
@@ -125,7 +123,7 @@ syslog_setlogmask(PyObject *self, PyObject *args)
 	return PyInt_FromLong(omaskpri);
 }
 
-static PyObject * 
+static PyObject *
 syslog_log_mask(PyObject *self, PyObject *args)
 {
 	long mask;
@@ -136,7 +134,7 @@ syslog_log_mask(PyObject *self, PyObject *args)
 	return PyInt_FromLong(mask);
 }
 
-static PyObject * 
+static PyObject *
 syslog_log_upto(PyObject *self, PyObject *args)
 {
 	long mask;
@@ -172,67 +170,54 @@ static PyMethodDef syslog_methods[] = {
 #endif /* INET225 */
 
 
-/* helper function for initialization function */
-
-static void
-ins(PyObject *d, char *s, long x)
-{
-	PyObject *v = PyInt_FromLong(x);
-	if (v) {
-		PyDict_SetItemString(d, s, v);
-		Py_DECREF(v);
-	}
-}
-
 /* Initialization function for the module */
 
-DL_EXPORT(void)
+PyMODINIT_FUNC
 initsyslog(void)
 {
-	PyObject *m, *d;
+	PyObject *m;
 
 	/* Create the module and add the functions */
 	m = Py_InitModule("syslog", syslog_methods);
 
 	/* Add some symbolic constants to the module */
-	d = PyModule_GetDict(m);
 
 	/* Priorities */
-	ins(d, "LOG_EMERG",	LOG_EMERG);
-	ins(d, "LOG_ALERT",	LOG_ALERT);
-	ins(d, "LOG_CRIT",	LOG_CRIT);
-	ins(d, "LOG_ERR",	LOG_ERR);
-	ins(d, "LOG_WARNING",	LOG_WARNING);
-	ins(d, "LOG_NOTICE",	LOG_NOTICE);
-	ins(d, "LOG_INFO",	LOG_INFO);
-	ins(d, "LOG_DEBUG",	LOG_DEBUG);
+	PyModule_AddIntConstant(m, "LOG_EMERG",	  LOG_EMERG);
+	PyModule_AddIntConstant(m, "LOG_ALERT",	  LOG_ALERT);
+	PyModule_AddIntConstant(m, "LOG_CRIT",	  LOG_CRIT);
+	PyModule_AddIntConstant(m, "LOG_ERR",	  LOG_ERR);
+	PyModule_AddIntConstant(m, "LOG_WARNING", LOG_WARNING);
+	PyModule_AddIntConstant(m, "LOG_NOTICE",  LOG_NOTICE);
+	PyModule_AddIntConstant(m, "LOG_INFO",	  LOG_INFO);
+	PyModule_AddIntConstant(m, "LOG_DEBUG",	  LOG_DEBUG);
 
 	/* openlog() option flags */
-	ins(d, "LOG_PID",	LOG_PID);
-	ins(d, "LOG_CONS",	LOG_CONS);
-	ins(d, "LOG_NDELAY",	LOG_NDELAY);
+	PyModule_AddIntConstant(m, "LOG_PID",	  LOG_PID);
+	PyModule_AddIntConstant(m, "LOG_CONS",	  LOG_CONS);
+	PyModule_AddIntConstant(m, "LOG_NDELAY",  LOG_NDELAY);
 #ifdef LOG_NOWAIT
-	ins(d, "LOG_NOWAIT",	LOG_NOWAIT);
+	PyModule_AddIntConstant(m, "LOG_NOWAIT",  LOG_NOWAIT);
 #endif
 #ifdef LOG_PERROR
-	ins(d, "LOG_PERROR",	LOG_PERROR);
+	PyModule_AddIntConstant(m, "LOG_PERROR",  LOG_PERROR);
 #endif
 
 	/* Facilities */
-	ins(d, "LOG_KERN",	LOG_KERN);
-	ins(d, "LOG_USER",	LOG_USER);
-	ins(d, "LOG_MAIL",	LOG_MAIL);
-	ins(d, "LOG_DAEMON",	LOG_DAEMON);
-	ins(d, "LOG_AUTH",	LOG_AUTH);
-	ins(d, "LOG_LPR",	LOG_LPR);
-	ins(d, "LOG_LOCAL0",	LOG_LOCAL0);
-	ins(d, "LOG_LOCAL1",	LOG_LOCAL1);
-	ins(d, "LOG_LOCAL2",	LOG_LOCAL2);
-	ins(d, "LOG_LOCAL3",	LOG_LOCAL3);
-	ins(d, "LOG_LOCAL4",	LOG_LOCAL4);
-	ins(d, "LOG_LOCAL5",	LOG_LOCAL5);
-	ins(d, "LOG_LOCAL6",	LOG_LOCAL6);
-	ins(d, "LOG_LOCAL7",	LOG_LOCAL7);
+	PyModule_AddIntConstant(m, "LOG_KERN",	  LOG_KERN);
+	PyModule_AddIntConstant(m, "LOG_USER",	  LOG_USER);
+	PyModule_AddIntConstant(m, "LOG_MAIL",	  LOG_MAIL);
+	PyModule_AddIntConstant(m, "LOG_DAEMON",  LOG_DAEMON);
+	PyModule_AddIntConstant(m, "LOG_AUTH",	  LOG_AUTH);
+	PyModule_AddIntConstant(m, "LOG_LPR",	  LOG_LPR);
+	PyModule_AddIntConstant(m, "LOG_LOCAL0",  LOG_LOCAL0);
+	PyModule_AddIntConstant(m, "LOG_LOCAL1",  LOG_LOCAL1);
+	PyModule_AddIntConstant(m, "LOG_LOCAL2",  LOG_LOCAL2);
+	PyModule_AddIntConstant(m, "LOG_LOCAL3",  LOG_LOCAL3);
+	PyModule_AddIntConstant(m, "LOG_LOCAL4",  LOG_LOCAL4);
+	PyModule_AddIntConstant(m, "LOG_LOCAL5",  LOG_LOCAL5);
+	PyModule_AddIntConstant(m, "LOG_LOCAL6",  LOG_LOCAL6);
+	PyModule_AddIntConstant(m, "LOG_LOCAL7",  LOG_LOCAL7);
 
 #ifndef LOG_SYSLOG
 #define LOG_SYSLOG		LOG_DAEMON
@@ -247,8 +232,8 @@ initsyslog(void)
 #define LOG_CRON		LOG_DAEMON
 #endif
 
-	ins(d, "LOG_SYSLOG",	LOG_SYSLOG);
-	ins(d, "LOG_CRON",	LOG_CRON);
-	ins(d, "LOG_UUCP",	LOG_UUCP);
-	ins(d, "LOG_NEWS",	LOG_NEWS);
+	PyModule_AddIntConstant(m, "LOG_SYSLOG",  LOG_SYSLOG);
+	PyModule_AddIntConstant(m, "LOG_CRON",	  LOG_CRON);
+	PyModule_AddIntConstant(m, "LOG_UUCP",	  LOG_UUCP);
+	PyModule_AddIntConstant(m, "LOG_NEWS",	  LOG_NEWS);
 }

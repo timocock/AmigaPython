@@ -35,17 +35,38 @@ tb_getattr(tracebackobject *tb, char *name)
 static void
 tb_dealloc(tracebackobject *tb)
 {
+	PyObject_GC_UnTrack(tb);
 	Py_TRASHCAN_SAFE_BEGIN(tb)
 	Py_XDECREF(tb->tb_next);
 	Py_XDECREF(tb->tb_frame);
-	PyObject_DEL(tb);
+	PyObject_GC_Del(tb);
 	Py_TRASHCAN_SAFE_END(tb)
 }
 
-#define Tracebacktype PyTraceBack_Type
-#define is_tracebackobject PyTraceBack_Check
+static int
+tb_traverse(tracebackobject *tb, visitproc visit, void *arg)
+{
+	int err = 0;
+	if (tb->tb_next) {
+		err = visit((PyObject *)tb->tb_next, arg);
+		if (err)
+			return err;
+	}
+	if (tb->tb_frame) 
+		err = visit((PyObject *)tb->tb_frame, arg);
+	return err;
+}
 
-PyTypeObject Tracebacktype = {
+static void
+tb_clear(tracebackobject *tb)
+{
+	Py_XDECREF(tb->tb_next);
+	Py_XDECREF(tb->tb_frame);
+	tb->tb_next = NULL;
+	tb->tb_frame = NULL;
+}
+
+PyTypeObject PyTraceBack_Type = {
 	PyObject_HEAD_INIT(&PyType_Type)
 	0,
 	"traceback",
@@ -60,26 +81,46 @@ PyTypeObject Tracebacktype = {
 	0,		/*tp_as_number*/
 	0,		/*tp_as_sequence*/
 	0,		/*tp_as_mapping*/
+	0,		/* tp_hash */
+	0,		/* tp_call */
+	0,		/* tp_str */
+	0,		/* tp_getattro */
+	0,		/* tp_setattro */
+	0,					/* tp_as_buffer */
+	Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HAVE_GC,/* tp_flags */
+	0,             				/* tp_doc */
+ 	(traverseproc)tb_traverse,		/* tp_traverse */
+	(inquiry)tb_clear,			/* tp_clear */
+	0,					/* tp_richcompare */
+	0,					/* tp_weaklistoffset */
+	0,					/* tp_iter */
+	0,					/* tp_iternext */
+	0,					/* tp_methods */
+	0,			/* tp_members */
+	0,			/* tp_getset */
+	0,					/* tp_base */
+	0,					/* tp_dict */
 };
 
 static tracebackobject *
-newtracebackobject(tracebackobject *next, PyFrameObject *frame, int lasti,
-		   int lineno)
+newtracebackobject(tracebackobject *next, PyFrameObject *frame)
 {
 	tracebackobject *tb;
-	if ((next != NULL && !is_tracebackobject(next)) ||
+	if ((next != NULL && !PyTraceBack_Check(next)) ||
 			frame == NULL || !PyFrame_Check(frame)) {
 		PyErr_BadInternalCall();
 		return NULL;
 	}
-	tb = PyObject_NEW(tracebackobject, &Tracebacktype);
+	tb = PyObject_GC_New(tracebackobject, &PyTraceBack_Type);
 	if (tb != NULL) {
 		Py_XINCREF(next);
 		tb->tb_next = next;
 		Py_XINCREF(frame);
 		tb->tb_frame = frame;
-		tb->tb_lasti = lasti;
-		tb->tb_lineno = lineno;
+		tb->tb_lasti = frame->f_lasti;
+		tb->tb_lineno = PyCode_Addr2Line(frame->f_code, 
+						 frame->f_lasti);
+		PyObject_GC_Track(tb);
 	}
 	return tb;
 }
@@ -89,8 +130,7 @@ PyTraceBack_Here(PyFrameObject *frame)
 {
 	PyThreadState *tstate = frame->f_tstate;
 	tracebackobject *oldtb = (tracebackobject *) tstate->curexc_traceback;
-	tracebackobject *tb = newtracebackobject(oldtb,
-				frame, frame->f_lasti, frame->f_lineno);
+	tracebackobject *tb = newtracebackobject(oldtb, frame);
 	if (tb == NULL)
 		return -1;
 	tstate->curexc_traceback = (PyObject *)tb;
@@ -103,18 +143,18 @@ tb_displayline(PyObject *f, char *filename, int lineno, char *name)
 {
 	int err = 0;
 	FILE *xfp;
-	char linebuf[1000];
+	char linebuf[2000];
 	int i;
 	if (filename == NULL || name == NULL)
 		return -1;
 #ifdef MPW
 	/* This is needed by MPW's File and Line commands */
-#define FMT "  File \"%.900s\"; line %d # in %s\n"
+#define FMT "  File \"%.500s\"; line %d # in %.500s\n"
 #else
 	/* This is needed by Emacs' compile command */
-#define FMT "  File \"%.900s\", line %d, in %s\n"
+#define FMT "  File \"%.500s\", line %d, in %.500s\n"
 #endif
-	xfp = fopen(filename, "r");
+	xfp = fopen(filename, "r" PY_STDIOTEXTMODE);
 	if (xfp == NULL) {
 		/* Search tail of filename in sys.path before giving up */
 		PyObject *path;
@@ -145,7 +185,7 @@ tb_displayline(PyObject *f, char *filename, int lineno, char *name)
 					if (len > 0 && namebuf[len-1] != SEP)
 						namebuf[len++] = SEP;
 					strcpy(namebuf+len, tail);
-					xfp = fopen(namebuf, "r");
+					xfp = fopen(namebuf, "r" PY_STDIOTEXTMODE);
 					if (xfp != NULL) {
 						filename = namebuf;
 						break;
@@ -154,7 +194,7 @@ tb_displayline(PyObject *f, char *filename, int lineno, char *name)
 			}
 		}
 	}
-	sprintf(linebuf, FMT, filename, lineno, name);
+	PyOS_snprintf(linebuf, sizeof(linebuf), FMT, filename, lineno, name);
 	err = PyFile_WriteString(linebuf, f);
 	if (xfp == NULL || err != 0)
 		return err;
@@ -162,7 +202,7 @@ tb_displayline(PyObject *f, char *filename, int lineno, char *name)
 		char* pLastChar = &linebuf[sizeof(linebuf)-2];
 		do {
 			*pLastChar = '\0';
-			if (fgets(linebuf, sizeof linebuf, xfp) == NULL)
+			if (Py_UniversalNewlineFgets(linebuf, sizeof linebuf, xfp, NULL) == NULL)
 				break;
 			/* fgets read *something*; if it didn't get as
 			   far as pLastChar, it must have found a newline
@@ -198,9 +238,6 @@ tb_printinternal(tracebackobject *tb, PyObject *f, int limit)
 	}
 	while (tb != NULL && err == 0) {
 		if (depth <= limit) {
-			if (Py_OptimizeFlag)
-				tb->tb_lineno = PyCode_Addr2Line(
-					tb->tb_frame->f_code, tb->tb_lasti);
 			err = tb_displayline(f,
 			    PyString_AsString(
 				    tb->tb_frame->f_code->co_filename),
@@ -223,7 +260,7 @@ PyTraceBack_Print(PyObject *v, PyObject *f)
 	int limit = 1000;
 	if (v == NULL)
 		return 0;
-	if (!is_tracebackobject(v)) {
+	if (!PyTraceBack_Check(v)) {
 		PyErr_BadInternalCall();
 		return -1;
 	}

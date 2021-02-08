@@ -26,11 +26,10 @@
  * Peters, Guido van Rossum, Ka-Ping Yee, Sjoerd Mullender, and
  * probably one or two others that I'm forgetting.
  *
- * $Id: regexpr.c,v 1.33 2000/07/21 06:00:07 twouters Exp $ */
+ * $Id: regexpr.c,v 1.36 2002/08/07 16:21:51 loewis Exp $ */
 
 #include "Python.h"
 #include "regexpr.h"
-#include <assert.h>
 
 /* The original code blithely assumed that sizeof(short) == 2.  Not
  * always true.  Original instances of "(short)x" were replaced by
@@ -1244,7 +1243,7 @@ char *re_compile_pattern(unsigned char *regex, int size, regexp_t bufp)
 		}
 		case Rquote:
 		{
-			abort();
+			Py_FatalError("Rquote");
 			/*NOTREACHED*/
 		}
 		case Rbol:
@@ -1383,7 +1382,7 @@ char *re_compile_pattern(unsigned char *regex, int size, regexp_t bufp)
 			if (a < '0' || a > '9')
 				goto bad_match_register;
 			ch = 10 * (a - '0') + ch - '0';
-			if (ch <= 0 || ch >= RE_NREGS)
+			if (ch == 0 || ch >= RE_NREGS)
 				goto bad_match_register;
 			bufp->uses_registers = 1;
 			opcode = Cmatch_memory;

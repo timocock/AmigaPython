@@ -107,9 +107,6 @@ PyOS_InterruptOccurred(void)
 #include <stdio.h>
 #include <string.h>
 #include <signal.h>
-#ifdef HAVE_UNISTD_H
-#include <unistd.h>
-#endif
 
 static int interrupted;
 
@@ -137,7 +134,11 @@ intcatcher(int sig)
 	case 0:
 		break;
 	case 1:
+#ifdef RISCOS
+		fprintf(stderr, message);
+#else
 		write(2, message, strlen(message));
+#endif
 		break;
 	case 2:
 		interrupted = 0;
@@ -176,7 +177,7 @@ int
 PyOS_InterruptOccurred(void)
 {
 #ifdef __SASC
-	extern void __regargs __chkabort(void);
+extern void __regargs __chkabort(void);
 	extern void chkabort(void);
 
 	chkabort();		/* explicit Amiga SAS/C ^C check */

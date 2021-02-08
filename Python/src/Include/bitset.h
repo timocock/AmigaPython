@@ -6,10 +6,9 @@ extern "C" {
 #endif
 
 /* Bitset interface */
-
 #ifdef _AMIGA
 #include <exec/types.h>
-#else /* !_AMIGA */
+#else
 #define BYTE		char
 #endif
 

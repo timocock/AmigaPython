@@ -2,7 +2,7 @@ RCS_ID_C="$Id: _dup.c,v 4.1 1994/09/29 23:09:02 jraja Exp $";
 /*
  *      _dup.c - duplicate a file descriptor (SAS/C)
  *
- *      Copyright © 1994 AmiTCP/IP Group,
+ *      Copyright © 1994 AmiTCP/IP Group, 
  *                       Network Solutions Development Inc.
  *                       All rights reserved.
  */
@@ -10,7 +10,7 @@ RCS_ID_C="$Id: _dup.c,v 4.1 1994/09/29 23:09:02 jraja Exp $";
 #include <ios1.h>
 #include <fcntl.h>
 #include <stdlib.h>
-/* #include <dos.h> */
+#include <dos.h>
 #define USE_BUILTIN_MATH
 #include <string.h>
 #include <errno.h>
@@ -100,10 +100,10 @@ dup(int old_fd)
 	errno = EBADF;
 	return -1;
   }
-
+  
   ufbflg = ufb->ufbflg;
 
-  /*
+  /* 
    * The brain dead UFB system won't allow duplicating ordinary files
    */
   if ((ufbflg & UFB_SOCK) == UFB_SOCK) {

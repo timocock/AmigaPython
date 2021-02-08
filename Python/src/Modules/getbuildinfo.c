@@ -1,4 +1,4 @@
-#include "config.h"
+#include "Python.h"
 
 #ifdef macintosh
 #include "macbuildno.h"
@@ -28,19 +28,21 @@
 #define BUILD 0
 #endif
 
-
 const char *
 Py_GetBuildInfo(void)
 {
 	static char buildinfo[50];
-	sprintf(buildinfo, "#%d, %.20s, %.9s", BUILD, DATE, TIME);
+	PyOS_snprintf(buildinfo, sizeof(buildinfo),
+		      "#%d, %.20s, %.9s", BUILD, DATE, TIME);
 	return buildinfo;
 }
+
 
 #ifdef _AMIGA
 #include "patchlevel.h"
 /* AmigaDOS version string */
-static const char ver[] = "$VER: Python " PATCHLEVEL " " __AMIGADATE__
+const char ver[] = "$VER: Python 2.3.3 " __AMIGADATE__ " AmiTCP";
+/*
 #ifdef AMITCP
  " AmiTCP";
 #else
@@ -48,6 +50,9 @@ static const char ver[] = "$VER: Python " PATCHLEVEL " " __AMIGADATE__
  " I-Net225";
 #else
  "";
-#endif /* INET225 */
-#endif /* AMITCP */
+
+#endif /* INET225
+#endif /* AMITCP
+*/
+const char shellstack[] = "$STACK:100000\n";
 #endif /* _AMIGA */

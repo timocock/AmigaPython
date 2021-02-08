@@ -55,10 +55,12 @@ extern "C" {
 #define LEFTSHIFTEQUAL	45
 #define RIGHTSHIFTEQUAL	46
 #define DOUBLESTAREQUAL	47
+#define DOUBLESLASH	48
+#define DOUBLESLASHEQUAL 49
 /* Don't forget to update the table _PyParser_TokenNames in tokenizer.c! */
-#define OP		48
-#define ERRORTOKEN	49
-#define N_TOKENS	50
+#define OP		50
+#define ERRORTOKEN	51
+#define N_TOKENS	52
 
 /* Special definitions for cooperation with parser */
 
@@ -69,10 +71,10 @@ extern "C" {
 #define ISEOF(x)		((x) == ENDMARKER)
 
 
-extern DL_IMPORT(char *) _PyParser_TokenNames[]; /* Token names */
-extern DL_IMPORT(int) PyToken_OneChar(int);
-extern DL_IMPORT(int) PyToken_TwoChars(int, int);
-extern DL_IMPORT(int) PyToken_ThreeChars(int, int, int);
+PyAPI_DATA(char *) _PyParser_TokenNames[]; /* Token names */
+PyAPI_FUNC(int) PyToken_OneChar(int);
+PyAPI_FUNC(int) PyToken_TwoChars(int, int);
+PyAPI_FUNC(int) PyToken_ThreeChars(int, int, int);
 
 #ifdef __cplusplus
 }

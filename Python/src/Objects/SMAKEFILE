@@ -1,10 +1,13 @@
 
 OBJECTS = abstract.o fileobject.o floatobject.o bufferobject.o \
+	boolobject.o cellobject.o descrobject.o \
+	iterobject.o obmalloc.o weakrefobject.o \
         funcobject.o intobject.o listobject.o longobject.o \
         dictobject.o methodobject.o moduleobject.o object.o \
         rangeobject.o stringobject.o tupleobject.o typeobject.o \
         classobject.o frameobject.o sliceobject.o complexobject.o cobject.o \
-	unicodeobject.o unicodectype.o
+	structseq.o enumobject.o
+###	unicodeobject.o unicodectype.o
 
 
 Objects.lib: $(OBJECTS)
@@ -16,6 +19,8 @@ $(OBJECTS)
 
 abstract.o : abstract.c /include/Python.h
 
+boolobject.o : boolobject.c /include/Python.h
+
 bufferobject.o: bufferobject.c /include/Python.h
 
 classobject.o : classobject.c /include/structmember.h /include/Python.h
@@ -24,7 +29,11 @@ cobject.o : cobject.c /include/Python.h
 
 complexobject.o : complexobject.c  /include/Python.h
 
+descrobject.o : descrobject.c /include/Python.h
+
 dictobject.o : dictobject.c /include/Python.h
+
+enumobject.o : enumobject.c /include/Python.h
 
 fileobject.o : fileobject.c /include/structmember.h /include/Python.h
 
@@ -36,6 +45,8 @@ funcobject.o : funcobject.c /include/structmember.h /include/compile.h /include/
 
 intobject.o : intobject.c /include/Python.h
 
+iterobject.o : iterobject.c /include/Python.h
+
 listobject.o : listobject.c /include/Python.h
 
 longobject.o : longobject.c  /include/longintrepr.h /include/Python.h
@@ -46,18 +57,24 @@ moduleobject.o : moduleobject.c /include/Python.h
 
 object.o : object.c /include/Python.h
 
+obmalloc.o : obmalloc.c /include/Python.h
+
 rangeobject.o : rangeobject.c /include/Python.h
 
 sliceobject.o : sliceobject.c /include/Python.h
 
 stringobject.o : stringobject.c  /include/Python.h
 
+structseq.o : structseq.c /include/object.h /include/structmember.h /include/structseq.h /include/Python.h
+
 tupleobject.o : tupleobject.c /include/Python.h
 
 typeobject.o : typeobject.c /include/Python.h
 
-unicodectype.o: unicodectype.c
+weakrefobject.o : weakrefobject.c /include/Python.h
 
-unicodeobject.o: unicodeobject.c
+###unicodectype.o: unicodectype.c
+
+###unicodeobject.o: unicodeobject.c
 
 dummyunicodectype.o: dummyunicodectype.c

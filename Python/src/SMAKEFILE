@@ -21,7 +21,7 @@
 
 
 # ye old progname:
-PROGRAM = Python20
+PROGRAM = Python23
 
 
 all: $(PROGRAM)
@@ -31,14 +31,17 @@ all: $(PROGRAM)
 # define to use mempools library
 # (use mempools39 to link with V39+ only pools lib => shorter & faster)
 #
-MEMPOOLSLIB=LIB:mempoolsnb.lib
-STARTUP=LIB:c_mempools.o
+#MEMPOOLSLIB=LIB:mempools39nb.lib
+#STARTUP=LIB:c_mempools.o
+
+# make sure to include the appropriate math library here
+MLIB=LIB:scmieee.lib
 
 #
 # define if NOT using mempools library
 #
-#MEMPOOLSLIB=
-#STARTUP=LIB:c.o
+MEMPOOLSLIB=
+STARTUP=LIB:c.o
 #
 
 #
@@ -68,22 +71,23 @@ TCPSTACKLIB=
 #
 # Expat XML parser lib
 #
-EXPATLIB = expat/lib/expat.lib
+EXPATLIB = LIB:xmlparse.lib
+#EXPATLIB =
 
 #
 # Link library configuration. Change to reflect correct math options etc.
 #
-CLIBS = $(AMIGAPYTHONLIB) $(MEMPOOLSLIB) $(TCPSTACKLIB) LIB:scm881nb.lib LIB:scnb.lib
+CLIBS = $(AMIGAPYTHONLIB) $(MEMPOOLSLIB) $(TCPSTACKLIB) $(MLIB) LIB:scnb.lib LIB:bz2.lib LIB:z.lib
 
 # Set link options to thy likes.
 # (compiler options can be changed using scopts)
 LINKOPTS = SC BATCH NOICONS
 
-LIBS = Modules/Modules.lib Parser/Parser.lib Python/Python.lib Objects/Objects.lib Expat/lib/expat.lib $(CLIBS)
+LIBS = Modules/Modules.lib Parser/Parser.lib Python/Python.lib Objects/Objects.lib $(CLIBS) $(EXPATLIB)
 
 OBJECTS=Modules/python.o Modules/main.o $(NEWMODULES)
 
-Python.GST: amiga/make_gst.c Include/Python.h Include/config.h Include/protos.h SCOPTIONS
+Python.GST: amiga/make_gst.c Include/Python.h Include/config.h Include/protos.h Include/pyport.h SCOPTIONS
 	-delete >NIL: Python.GST
 	-GST >NIL: Python.GST unload
 	-SC amiga/make_gst.c MKGST Python.GST NOOBJNAME DEFINE=PROTO_TIMER_H
@@ -179,11 +183,11 @@ smake $(AMIGAPYTHONLIBNAM)
 <<
 	@echo "******************** LEAVING Amiga/  *********************N"
 
-$(EXPATLIB): Expat
-	@echo "******************** ENTERING Expat/ *********************N"
-	execute <<
-cd Expat
-smake
-<<
-	@echo "******************** LEAVING Expat/  *********************N"
+#$(EXPATLIB): Expat
+#	@echo "******************** ENTERING Expat/ *********************N"
+#	execute <<
+#cd Expat
+#smake
+#<<
+#	@echo "******************** LEAVING Expat/  *********************N"
 

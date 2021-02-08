@@ -10,17 +10,14 @@
 #include "TFileSpec.h"		/* for Path2FSSpec() */
 #endif
 #include <Files.h>
+#include <TextUtils.h>
 #include "macdefs.h"
 #include "macglue.h"
 
 
 const struct filedescr _PyImport_DynLoadFiletab[] = {
 	{".slb", "rb", C_EXTENSION},
-#ifdef __CFM68K__
-	{".CFM68K.slb", "rb", C_EXTENSION},
-#else
-	{".ppc.slb", "rb", C_EXTENSION},
-#endif
+	{".carbon.slb", "rb", C_EXTENSION},
 	{0, 0}
 };
 
@@ -56,12 +53,13 @@ dl_funcptr _PyImport_GetDynLoadFunc(const char *fqname, const char *shortname,
 #ifdef USE_GUSI1
 	err = Path2FSSpec(pathname, &libspec);
 #else
-	(void)FSMakeFSSpec(0, 0, Pstring(pathname), &libspec);
+	c2pstrcpy((unsigned char *)buf, pathname);
+	(void)FSMakeFSSpec(0, 0, (unsigned char *)buf, &libspec);
 	err = ResolveAliasFile(&libspec, 1, &isfolder, &didsomething);
 #endif
 	if ( err ) {
-		sprintf(buf, "%.255s: %.200s",
-			pathname, PyMac_StrError(err));
+		PyOS_snprintf(buf, sizeof(buf),
+			      "%.200s: %.200s", pathname, PyMac_StrError(err));
 		PyErr_SetString(PyExc_ImportError, buf);
 		return NULL;
 	}
@@ -86,25 +84,26 @@ dl_funcptr _PyImport_GetDynLoadFunc(const char *fqname, const char *shortname,
 		** the dynamic module was meant for a different Python.
 		*/
 		if (errMessage[0] == 10 && strncmp((char *)errMessage+1, "PythonCore", 10) == 0 ) {
-			sprintf(buf, "Dynamic module was built for %s version of MacPython",
-				(err == cfragImportTooOldErr ? "a newer" : "an older"));
+			PyOS_snprintf(buf, sizeof(buf),
+		      "Dynamic module was built for %s version of MacPython",
+		      (err == cfragImportTooOldErr ? "a newer" : "an older"));
 			PyErr_SetString(PyExc_ImportError, buf);
 			return NULL;
 		}
 	}
 	if ( err ) {
-		sprintf(buf, "%.*s: %.200s",
+		PyOS_snprintf(buf, sizeof(buf), "%.*s: %.200s",
 			errMessage[0], errMessage+1,
 			PyMac_StrError(err));
 		PyErr_SetString(PyExc_ImportError, buf);
 		return NULL;
 	}
 	/* Locate the address of the correct init function */
-	sprintf(funcname, "init%.200s", shortname);
+	PyOS_snprintf(funcname, sizeof(funcname), "init%.200s", shortname);
 	err = FindSymbol(connID, Pstring(funcname), &symAddr, &class);
 	if ( err ) {
-		sprintf(buf, "%s: %.200s",
-			funcname, PyMac_StrError(err));
+		PyOS_snprintf(buf, sizeof(buf), "%s: %.200s",
+			      funcname, PyMac_StrError(err));
 		PyErr_SetString(PyExc_ImportError, buf);
 		return NULL;
 	}

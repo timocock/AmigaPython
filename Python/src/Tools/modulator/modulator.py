@@ -30,13 +30,16 @@ import string
 
 oops = 'oops'
 
+IDENTSTARTCHARS = string.letters + '_'
+IDENTCHARS = string.letters + string.digits + '_'
+
 # Check that string is a legal C identifier
 def checkid(str):
     if not str: return 0
-    if not str[0] in string.letters+'_':
+    if not str[0] in IDENTSTARTCHARS:
         return 0
     for c in str[1:]:
-        if not c in string.letters+string.digits+'_':
+        if not c in IDENTCHARS:
             return 0
     return 1
 
@@ -220,7 +223,7 @@ class UI_module:
         rv = rv + (name+'.name = '+`self.name_entry.get()`+'\n')
         rv = rv + (name+'.abbrev = '+`self.abbrev_entry.get()`+'\n')
         rv = rv + (name+'.methodlist = '+`getlistlist(self.method_list)`+'\n')
-        rv = rv + (name+'.objects = ['+string.joinfields(onames, ',')+']\n')
+        rv = rv + (name+'.objects = ['+','.join(onames)+']\n')
         rv = rv + ('\n')
         return rv
         

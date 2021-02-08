@@ -36,6 +36,7 @@
 
 
 #include "Python.h"
+#include "structseq.h"
 #include "osdefs.h"
 
 #include <stdlib.h>
@@ -43,7 +44,7 @@
 #include <errno.h>
 #include <stat.h>
 #ifndef INET225
-#include <dos/dos.h>
+#include <dos.h>
 #endif
 #include <proto/dos.h>
 #include <proto/exec.h>
@@ -73,6 +74,64 @@ static __inline int dup2(int oldsd, int newsd) { return s_dup2(oldsd, newsd); }
 #endif
 
 #include "protos.h"
+
+#	define STAT stat
+#	define FSTAT fstat
+#	define STRUCT_STAT struct stat
+
+static PyStructSequence_Field stat_result_fields[] = {
+	{"st_mode",    "protection bits"},
+	{"st_ino",     "inode"},
+	{"st_dev",     "device"},
+	{"st_nlink",   "number of hard links"},
+	{"st_uid",     "user ID of owner"},
+	{"st_gid",     "group ID of owner"},
+	{"st_size",    "total size, in bytes"},
+	/* The NULL is replaced with PyStructSequence_UnnamedField later. */
+	{NULL,   "integer time of last access"},
+	{NULL,   "integer time of last modification"},
+	{NULL,   "integer time of last change"},
+	{"st_atime",   "time of last access"},
+	{"st_mtime",   "time of last modification"},
+	{"st_ctime",   "time of last change"},
+#ifdef HAVE_STRUCT_STAT_ST_BLKSIZE
+	{"st_blksize", "blocksize for filesystem I/O"},
+#endif
+#ifdef HAVE_STRUCT_STAT_ST_BLOCKS
+	{"st_blocks",  "number of blocks allocated"},
+#endif
+#ifdef HAVE_STRUCT_STAT_ST_RDEV
+	{"st_rdev",    "device type (if inode device)"},
+#endif
+	{0}
+};
+
+static PyTypeObject StatResultType;
+
+#ifdef HAVE_STRUCT_STAT_ST_BLKSIZE
+#define ST_BLKSIZE_IDX 13
+#else
+#define ST_BLKSIZE_IDX 12
+#endif
+
+#ifdef HAVE_STRUCT_STAT_ST_BLOCKS
+#define ST_BLOCKS_IDX (ST_BLKSIZE_IDX+1)
+#else
+#define ST_BLOCKS_IDX ST_BLKSIZE_IDX
+#endif
+
+#ifdef HAVE_STRUCT_STAT_ST_RDEV
+#define ST_RDEV_IDX (ST_BLOCKS_IDX+1)
+#else
+#define ST_RDEV_IDX ST_BLOCKS_IDX
+#endif
+
+static PyStructSequence_Desc stat_result_desc = {
+	"stat_result", /* name */
+	NULL, /* doc */
+	stat_result_fields,
+	10
+};
 
 /* Return a dictionary corresponding to the AmigaDOS environment table. */
 /* That is, scan ENV: for global environment variables.                 */
@@ -251,6 +310,114 @@ amiga_strintint(PyObject *args, int (*func)(const char *, int, int))
 	return Py_None;
 }
 
+/* If true, st_?time is float. */
+static int _stat_float_times = 0;
+
+PyDoc_STRVAR(stat_float_times__doc__,
+"stat_float_times([newval]) -> oldval\n\n\
+Determine whether os.[lf]stat represents time stamps as float objects.\n\
+If newval is True, future calls to stat() return floats, if it is False,\n\
+future calls return ints. \n\
+If newval is omitted, return the current setting.\n");
+
+static PyObject*
+stat_float_times(PyObject* self, PyObject *args)
+{
+	int newval = -1;
+	if (!PyArg_ParseTuple(args, "|i:stat_float_times", &newval))
+		return NULL;
+	if (newval == -1)
+		/* Return old value */
+		return PyBool_FromLong(_stat_float_times);
+	_stat_float_times = newval;
+	Py_INCREF(Py_None);
+	return Py_None;
+}
+
+static void
+fill_time(PyObject *v, int index, time_t sec, unsigned long nsec)
+{
+	PyObject *fval,*ival;
+#if SIZEOF_TIME_T > SIZEOF_LONG
+	ival = PyLong_FromLongLong((PY_LONG_LONG)sec);
+#else
+	ival = PyInt_FromLong((long)sec);
+#endif
+	if (_stat_float_times) {
+		fval = PyFloat_FromDouble(sec + 1e-9*nsec);
+	} else {
+		fval = ival;
+		Py_INCREF(fval);
+	}
+	PyStructSequence_SET_ITEM(v, index, ival);
+	PyStructSequence_SET_ITEM(v, index+3, fval);
+}
+
+/* pack a system stat C structure into the Python stat tuple
+   (used by posix_stat() and posix_fstat()) */
+static PyObject*
+_pystat_fromstructstat(STRUCT_STAT st)
+{
+	unsigned long ansec, mnsec, cnsec;
+	PyObject *v = PyStructSequence_New(&StatResultType);
+	if (v == NULL)
+		return NULL;
+
+        PyStructSequence_SET_ITEM(v, 0, PyInt_FromLong((long)st.st_mode));
+#ifdef HAVE_LARGEFILE_SUPPORT
+        PyStructSequence_SET_ITEM(v, 1,
+				  PyLong_FromLongLong((PY_LONG_LONG)st.st_ino));
+#else
+        PyStructSequence_SET_ITEM(v, 1, PyInt_FromLong((long)st.st_ino));
+#endif
+#if defined(HAVE_LONG_LONG) && !defined(MS_WINDOWS)
+        PyStructSequence_SET_ITEM(v, 2,
+				  PyLong_FromLongLong((PY_LONG_LONG)st.st_dev));
+#else
+        PyStructSequence_SET_ITEM(v, 2, PyInt_FromLong((long)st.st_dev));
+#endif
+        PyStructSequence_SET_ITEM(v, 3, PyInt_FromLong((long)st.st_nlink));
+        PyStructSequence_SET_ITEM(v, 4, PyInt_FromLong((long)st.st_uid));
+        PyStructSequence_SET_ITEM(v, 5, PyInt_FromLong((long)st.st_gid));
+#ifdef HAVE_LARGEFILE_SUPPORT
+        PyStructSequence_SET_ITEM(v, 6,
+				  PyLong_FromLongLong((PY_LONG_LONG)st.st_size));
+#else
+        PyStructSequence_SET_ITEM(v, 6, PyInt_FromLong(st.st_size));
+#endif
+
+#ifdef HAVE_STAT_TV_NSEC
+	ansec = st.st_atim.tv_nsec;
+	mnsec = st.st_mtim.tv_nsec;
+	cnsec = st.st_ctim.tv_nsec;
+#else
+	ansec = mnsec = cnsec = 0;
+#endif
+	fill_time(v, 7, st.st_atime, ansec);
+	fill_time(v, 8, st.st_mtime, mnsec);
+	fill_time(v, 9, st.st_ctime, cnsec);
+
+#ifdef HAVE_STRUCT_STAT_ST_BLKSIZE
+	PyStructSequence_SET_ITEM(v, ST_BLKSIZE_IDX,
+			 PyInt_FromLong((long)st.st_blksize));
+#endif
+#ifdef HAVE_STRUCT_STAT_ST_BLOCKS
+	PyStructSequence_SET_ITEM(v, ST_BLOCKS_IDX,
+			 PyInt_FromLong((long)st.st_blocks));
+#endif
+#ifdef HAVE_STRUCT_STAT_ST_RDEV
+	PyStructSequence_SET_ITEM(v, ST_RDEV_IDX,
+			 PyInt_FromLong((long)st.st_rdev));
+#endif
+
+	if (PyErr_Occurred()) {
+		Py_DECREF(v);
+		return NULL;
+	}
+
+	return v;
+}
+
 static PyObject *
 amiga_do_stat(PyObject *self, PyObject *args, int (*statfunc)(const char *, struct stat *))
 {
@@ -264,7 +431,7 @@ amiga_do_stat(PyObject *self, PyObject *args, int (*statfunc)(const char *, stru
 	Py_END_ALLOW_THREADS
 	if (res != 0)
 		return amiga_error_with_filename(path);
-	return Py_BuildValue("(llllllllll)",
+	/*return Py_BuildValue("(llllllllll)",
 			(long)st.st_mode,
 			(long)st.st_ino,
 			(long)st.st_dev,
@@ -274,7 +441,8 @@ amiga_do_stat(PyObject *self, PyObject *args, int (*statfunc)(const char *, stru
 			(long)st.st_size,
 			(long)st.st_atime,
 			(long)st.st_mtime,
-			(long)st.st_ctime);
+			(long)st.st_ctime);*/
+	return _pystat_fromstructstat(st);
 }
 
 
@@ -902,7 +1070,7 @@ amiga_fstat(PyObject *self, PyObject *args)
 	Py_END_ALLOW_THREADS
 	if (res != 0)
 		return amiga_error();
-	return Py_BuildValue("(llllllllll)",
+	/*return Py_BuildValue("(llllllllll)",
 			(long)st.st_mode,
 			(long)st.st_ino,
 			(long)st.st_dev,
@@ -912,7 +1080,8 @@ amiga_fstat(PyObject *self, PyObject *args)
 			(long)st.st_size,
 			(long)st.st_atime,
 			(long)st.st_mtime,
-			(long)st.st_ctime);
+			(long)st.st_ctime);  */
+	return _pystat_fromstructstat(st);
 }
 
 static PyObject *
@@ -1089,9 +1258,11 @@ static struct PyMethodDef amiga_methods[] = {
 #if defined(AMITCP) || defined(INET225)
 	{"utime",   amiga_utime},
 #endif
+#undef HAVE_TIMES
 #ifdef HAVE_TIMES
 	{"times",   amiga_times},
 #endif
+#undef HAVE_EXECV
 #ifdef HAVE_EXECV
 	{"execv",	amiga_execv},
 	{"execve",	amiga_execve},
@@ -1133,9 +1304,11 @@ static struct PyMethodDef amiga_methods[] = {
 #ifdef HAVE_SETPGID
 	{"setpgid", amiga_setpgid},
 #endif
+#undef HAVE_TCGETPGRP
 #ifdef HAVE_TCGETPGRP
 	{"tcgetpgrp",   amiga_tcgetpgrp},
 #endif
+#undef HAVE_TCSETPGRP
 #ifdef HAVE_TCSETPGRP
 	{"tcsetpgrp",   amiga_tcsetpgrp},
 #endif
@@ -1150,9 +1323,11 @@ static struct PyMethodDef amiga_methods[] = {
 	{"write",   amiga_write},
 	{"fstat",   amiga_fstat},
 	{"fdopen",  amiga_fdopen,   1},
+#undef HAVE_MKFIFO
 #ifdef HAVE_MKFIFO
 	{"mkfifo",	amiga_mkfifo, 1},
 #endif
+#undef HAVE_FTRUNCATE
 #ifdef HAVE_FTRUNCATE
 	{"ftruncate",	amiga_ftruncate, 1},
 #endif
@@ -1169,7 +1344,6 @@ static struct PyMethodDef amiga_methods[] = {
 	{"crc32",	amiga_crc32, 1},
 	{NULL,      NULL}        /* Sentinel */
 };
-
 
 static int
 ins(PyObject *d, char *symbol, long value)
@@ -1239,6 +1413,33 @@ static int all_ins(PyObject *d)
         return 0;
 }
 
+static PyTypeObject StatResultType;
+static newfunc structseq_new;
+
+static PyObject *
+statresult_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
+{
+	PyStructSequence *result;
+	int i;
+
+	result = (PyStructSequence*)structseq_new(type, args, kwds);
+	if (!result)
+		return NULL;
+	/* If we have been initialized from a tuple,
+	   st_?time might be set to None. Initialize it
+	   from the int slots.  */
+	for (i = 7; i <= 9; i++) {
+		if (result->ob_item[i+3] == Py_None) {
+			Py_DECREF(Py_None);
+			Py_INCREF(result->ob_item[i]);
+			result->ob_item[i+3] = result->ob_item[i];
+		}
+	}
+	return (PyObject*)result;
+}
+
+
+
 void
 initamiga(void)
 {
@@ -1268,4 +1469,17 @@ initamiga(void)
 
 	/* Initialize exception */
 	PyDict_SetItemString(d, "error", PyExc_OSError);
+
+#define MODNAME "amiga"
+
+	stat_result_desc.name = MODNAME ".stat_result";
+	stat_result_desc.fields[7].name = PyStructSequence_UnnamedField;
+	stat_result_desc.fields[8].name = PyStructSequence_UnnamedField;
+	stat_result_desc.fields[9].name = PyStructSequence_UnnamedField;
+	PyStructSequence_InitType(&StatResultType, &stat_result_desc);
+	structseq_new = StatResultType.tp_new;
+	StatResultType.tp_new = statresult_new;
+	Py_INCREF((PyObject*) &StatResultType);
+	PyModule_AddObject(m, "stat_result", (PyObject*) &StatResultType);
+
 }

@@ -103,13 +103,12 @@ rooturl   -- URL to start checking
 """
 
 
-__version__ = "$Revision: 1.22 $"
+__version__ = "$Revision: 1.30 $"
 
 
 import sys
 import os
 from types import *
-import string
 import StringIO
 import getopt
 import pickle
@@ -117,13 +116,14 @@ import pickle
 import urllib
 import urlparse
 import sgmllib
+import cgi
 
 import mimetypes
 import robotparser
 
 # Extract real version number if necessary
 if __version__[0] == '$':
-    _v = string.split(__version__)
+    _v = __version__.split()
     if len(_v) == 3:
         __version__ = _v[1]
 
@@ -169,13 +169,13 @@ def main():
         if o == '-d':
             dumpfile = a
         if o == '-m':
-            maxpage = string.atoi(a)
+            maxpage = int(a)
         if o == '-n':
             norun = 1
         if o == '-q':
             verbose = 0
         if o == '-r':
-            roundsize = string.atoi(a)
+            roundsize = int(a)
         if o == '-t':
             extra_roots.append(a)
         if o == '-a':
@@ -247,7 +247,7 @@ def load_pickle(dumpfile=DUMPFILE, verbose=VERBOSE):
     f.close()
     if verbose > 0:
         print "Done."
-        print "Root:", string.join(c.roots, "\n      ")
+        print "Root:", "\n      ".join(c.roots)
     return c
 
 
@@ -315,7 +315,7 @@ class Checker:
             troot = root
             scheme, netloc, path, params, query, fragment = \
                     urlparse.urlparse(root)
-            i = string.rfind(path, "/") + 1
+            i = path.rfind("/") + 1
             if 0 < i < len(path):
                 path = path[:i]
                 troot = urlparse.urlunparse((scheme, netloc, path,
@@ -335,7 +335,7 @@ class Checker:
         rp.set_url(url)
         try:
             rp.read()
-        except IOError, msg:
+        except (OSError, IOError), msg:
             self.note(1, "I/O error parsing %s: %s", url, msg)
 
     def run(self):
@@ -400,7 +400,15 @@ class Checker:
         if local_fragment and self.nonames:
             self.markdone(url_pair)
             return
-        page = self.getpage(url_pair)
+        try:
+            page = self.getpage(url_pair)
+        except sgmllib.SGMLParseError, msg:
+            msg = self.sanitize(msg)
+            self.note(0, "Error parsing %s: %s",
+                          self.format_url(url_pair), msg)
+            # Dont actually mark the URL as bad - it exists, just
+            # we can't parse it!
+            page = None
         if page:
             # Store the page which corresponds to this URL.
             self.name_table[url] = page
@@ -481,8 +489,9 @@ class Checker:
         if self.name_table.has_key(url):
             return self.name_table[url]
 
-        if url[:7] == 'mailto:' or url[:5] == 'news:':
-            self.note(1, " Not checking mailto/news URL")
+        scheme, path = urllib.splittype(url)
+        if scheme in ('mailto', 'news', 'javascript', 'telnet'):
+            self.note(1, " Not checking %s URL" % scheme)
             return None
         isint = self.inroots(url)
 
@@ -532,7 +541,7 @@ class Checker:
         url, fragment = url_pair
         try:
             return self.urlopener.open(url)
-        except IOError, msg:
+        except (OSError, IOError), msg:
             msg = self.sanitize(msg)
             self.note(0, "Error %s", msg)
             if self.verbose > 0:
@@ -542,7 +551,10 @@ class Checker:
 
     def checkforhtml(self, info, url):
         if info.has_key('content-type'):
-            ctype = string.lower(info['content-type'])
+            ctype = cgi.parse_header(info['content-type'])[0].lower()
+            if ';' in ctype:
+                # handle content-type: text/html; charset=iso8859-1 :
+                ctype = ctype.split(';', 1)[0].strip()
         else:
             if url[-1:] == "/":
                 return 1
@@ -792,22 +804,55 @@ class MyHTMLParser(sgmllib.SGMLParser):
     def do_area(self, attributes):
         self.link_attr(attributes, 'href')
 
+    def do_body(self, attributes):
+        self.link_attr(attributes, 'background', 'bgsound')
+
     def do_img(self, attributes):
         self.link_attr(attributes, 'src', 'lowsrc')
 
     def do_frame(self, attributes):
+        self.link_attr(attributes, 'src', 'longdesc')
+
+    def do_iframe(self, attributes):
+        self.link_attr(attributes, 'src', 'longdesc')
+
+    def do_link(self, attributes):
+        for name, value in attributes:
+            if name == "rel":
+                parts = value.lower().split()
+                if (  parts == ["stylesheet"]
+                      or parts == ["alternate", "stylesheet"]):
+                    self.link_attr(attributes, "href")
+                    break
+
+    def do_object(self, attributes):
+        self.link_attr(attributes, 'data', 'usemap')
+
+    def do_script(self, attributes):
         self.link_attr(attributes, 'src')
+
+    def do_table(self, attributes):
+        self.link_attr(attributes, 'background')
+
+    def do_td(self, attributes):
+        self.link_attr(attributes, 'background')
+
+    def do_th(self, attributes):
+        self.link_attr(attributes, 'background')
+
+    def do_tr(self, attributes):
+        self.link_attr(attributes, 'background')
 
     def link_attr(self, attributes, *args):
         for name, value in attributes:
             if name in args:
-                if value: value = string.strip(value)
+                if value: value = value.strip()
                 if value: self.links[value] = None
 
     def do_base(self, attributes):
         for name, value in attributes:
             if name == 'href':
-                if value: value = string.strip(value)
+                if value: value = value.strip()
                 if value:
                     if self.checker:
                         self.checker.note(1, "  Base %s", value)
