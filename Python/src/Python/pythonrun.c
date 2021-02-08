@@ -64,6 +64,19 @@ int Py_UseClassExceptionsFlag = 1; /* Needed by bltinmodule.c: deprecated */
 int Py_FrozenFlag; /* Needed by getpath.c */
 int Py_UnicodeFlag = 0; /* Needed by compile.c */
 
+#ifdef _AMIGA
+char *Py_InitialPath = NULL;
+
+void __restore_cd(void)
+{
+    if (Py_InitialPath != NULL)
+    {
+        chdir(Py_InitialPath);
+        free(Py_InitialPath);
+    }
+}
+#endif
+
 static int initialized = 0;
 
 /* API to access the initialized flag -- useful for esoteric use */
@@ -98,6 +111,11 @@ Py_Initialize(void)
 		return;
 	initialized = 1;
 	
+#ifdef _AMIGA
+    Py_InitialPath = getcwd(NULL, 1024);
+    atexit(__restore_cd);
+#endif /* _AMIGA */
+		    
 	if ((p = getenv("PYTHONDEBUG")) && *p != '\0')
 		Py_DebugFlag = Py_DebugFlag ? Py_DebugFlag : 1;
 	if ((p = getenv("PYTHONVERBOSE")) && *p != '\0')
