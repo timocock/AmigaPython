@@ -1,5 +1,4 @@
-
-; $VER: CRC32 2.0 (17.10.99) ©1999 Irmen de Jong
+; $VER: CRC32 2.0 (17.10.99) ï¿½1999 Irmen de Jong
 
 ;****************************************************************
 ;*                                                              *
@@ -199,4 +198,8 @@ _crc_table
     dc.l    $B40BBE37,$C30C8EA1,$5A05DF1B,$2D02EF8D
 
     END
+
+    IFND M68020
+    DEFINE M68000 1  # Force 68000 compatibility
+    ENDC
 
