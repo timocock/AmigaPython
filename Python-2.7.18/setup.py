@@ -223,6 +223,14 @@ class PyBuildExt(build_ext):
         self.failed = []
 
     def build_extensions(self):
+        if sys.platform == 'amiga':
+            self.disable_unsupported()
+        build_ext.build_extensions(self)
+    
+    def disable_unsupported(self):
+        for ext in self.extensions[:]:
+            if ext.name in ['_curses', 'mmap', '_multiprocessing']:
+                self.extensions.remove(ext)
 
         # Detect which modules should be compiled
         missing = self.detect_modules()

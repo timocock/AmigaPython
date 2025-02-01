@@ -1,4 +1,3 @@
-
 /* Python interpreter top-level routines, including init/exit */
 
 #include "Python.h"
@@ -158,233 +157,17 @@ isatty_no_error(PyObject *sys_stream)
     return 0;
 }
 
-void
-Py_InitializeEx(int install_sigs)
-{
-    PyInterpreterState *interp;
-    PyThreadState *tstate;
-    PyObject *bimod, *sysmod;
-    char *p;
-    char *icodeset = NULL; /* On Windows, input codeset may theoretically
-                              differ from output codeset. */
-    char *codeset = NULL;
-    char *errors = NULL;
-    int free_codeset = 0;
-    int overridden = 0;
-    PyObject *sys_stream;
-#if defined(Py_USING_UNICODE) && defined(HAVE_LANGINFO_H) && defined(CODESET)
-    char *saved_locale, *loc_codeset;
+#ifdef _AMIGA
+extern void init_amiga(void);
 #endif
-#ifdef MS_WINDOWS
-    char ibuf[128];
-    char buf[128];
-#endif
-    extern void _Py_ReadyTypes(void);
-
-    if (initialized)
-        return;
-    initialized = 1;
-
-    if ((p = Py_GETENV("PYTHONDEBUG")) && *p != '\0')
-        Py_DebugFlag = add_flag(Py_DebugFlag, p);
-    if ((p = Py_GETENV("PYTHONVERBOSE")) && *p != '\0')
-        Py_VerboseFlag = add_flag(Py_VerboseFlag, p);
-    if ((p = Py_GETENV("PYTHONOPTIMIZE")) && *p != '\0')
-        Py_OptimizeFlag = add_flag(Py_OptimizeFlag, p);
-    if ((p = Py_GETENV("PYTHONDONTWRITEBYTECODE")) && *p != '\0')
-        Py_DontWriteBytecodeFlag = add_flag(Py_DontWriteBytecodeFlag, p);
-    /* The variable is only tested for existence here; _PyRandom_Init will
-       check its value further. */
-    if ((p = Py_GETENV("PYTHONHASHSEED")) && *p != '\0')
-        Py_HashRandomizationFlag = add_flag(Py_HashRandomizationFlag, p);
-
-    _PyRandom_Init();
-
-    interp = PyInterpreterState_New();
-    if (interp == NULL)
-        Py_FatalError("Py_Initialize: can't make first interpreter");
-
-    tstate = PyThreadState_New(interp);
-    if (tstate == NULL)
-        Py_FatalError("Py_Initialize: can't make first thread");
-    (void) PyThreadState_Swap(tstate);
-
-    _Py_ReadyTypes();
-
-    if (!_PyFrame_Init())
-        Py_FatalError("Py_Initialize: can't init frames");
-
-    if (!_PyInt_Init())
-        Py_FatalError("Py_Initialize: can't init ints");
-
-    if (!_PyLong_Init())
-        Py_FatalError("Py_Initialize: can't init longs");
-
-    if (!PyByteArray_Init())
-        Py_FatalError("Py_Initialize: can't init bytearray");
-
-    _PyFloat_Init();
-
-    interp->modules = PyDict_New();
-    if (interp->modules == NULL)
-        Py_FatalError("Py_Initialize: can't make modules dictionary");
-    interp->modules_reloading = PyDict_New();
-    if (interp->modules_reloading == NULL)
-        Py_FatalError("Py_Initialize: can't make modules_reloading dictionary");
-
-#ifdef Py_USING_UNICODE
-    /* Init Unicode implementation; relies on the codec registry */
-    _PyUnicode_Init();
-#endif
-
-    bimod = _PyBuiltin_Init();
-    if (bimod == NULL)
-        Py_FatalError("Py_Initialize: can't initialize __builtin__");
-    interp->builtins = PyModule_GetDict(bimod);
-    if (interp->builtins == NULL)
-        Py_FatalError("Py_Initialize: can't initialize builtins dict");
-    Py_INCREF(interp->builtins);
-
-    sysmod = _PySys_Init();
-    if (sysmod == NULL)
-        Py_FatalError("Py_Initialize: can't initialize sys");
-    interp->sysdict = PyModule_GetDict(sysmod);
-    if (interp->sysdict == NULL)
-        Py_FatalError("Py_Initialize: can't initialize sys dict");
-    Py_INCREF(interp->sysdict);
-    _PyImport_FixupExtension("sys", "sys");
-    PySys_SetPath(Py_GetPath());
-    PyDict_SetItemString(interp->sysdict, "modules",
-                         interp->modules);
-
-    _PyImport_Init();
-
-    /* initialize builtin exceptions */
-    _PyExc_Init();
-    _PyImport_FixupExtension("exceptions", "exceptions");
-
-    /* phase 2 of builtins */
-    _PyImport_FixupExtension("__builtin__", "__builtin__");
-
-    _PyImportHooks_Init();
-
-    if (install_sigs)
-        initsigs(); /* Signal handling stuff, including initintr() */
-
-    /* Initialize warnings. */
-    _PyWarnings_Init();
-    if (PySys_HasWarnOptions()) {
-        PyObject *warnings_module = PyImport_ImportModule("warnings");
-        if (!warnings_module)
-            PyErr_Clear();
-        Py_XDECREF(warnings_module);
-    }
-
-    initmain(); /* Module __main__ */
-
-    /* auto-thread-state API, if available */
-#ifdef WITH_THREAD
-    _PyGILState_Init(interp, tstate);
-#endif /* WITH_THREAD */
-
-    if (!Py_NoSiteFlag)
-        initsite(); /* Module site */
-
-    if ((p = Py_GETENV("PYTHONIOENCODING")) && *p != '\0') {
-        p = icodeset = codeset = strdup(p);
-        free_codeset = 1;
-        errors = strchr(p, ':');
-        if (errors) {
-            *errors = '\0';
-            errors++;
-        }
-        overridden = 1;
-    }
-
-#if defined(Py_USING_UNICODE) && defined(HAVE_LANGINFO_H) && defined(CODESET)
-    /* On Unix, set the file system encoding according to the
-       user's preference, if the CODESET names a well-known
-       Python codec, and Py_FileSystemDefaultEncoding isn't
-       initialized by other means. Also set the encoding of
-       stdin and stdout if these are terminals, unless overridden.  */
-
-    if (!overridden || !Py_FileSystemDefaultEncoding) {
-        saved_locale = strdup(setlocale(LC_CTYPE, NULL));
-        setlocale(LC_CTYPE, "");
-        loc_codeset = nl_langinfo(CODESET);
-        if (loc_codeset && *loc_codeset) {
-            PyObject *enc = PyCodec_Encoder(loc_codeset);
-            if (enc) {
-                loc_codeset = strdup(loc_codeset);
-                Py_DECREF(enc);
-            } else {
-                if (PyErr_ExceptionMatches(PyExc_LookupError)) {
-                    PyErr_Clear();
-                    loc_codeset = NULL;
-                } else {
-                    PyErr_Print();
-                    exit(1);
-                }
-            }
-        } else
-            loc_codeset = NULL;
-        setlocale(LC_CTYPE, saved_locale);
-        free(saved_locale);
-
-        if (!overridden) {
-            codeset = icodeset = loc_codeset;
-            free_codeset = 1;
-        }
-
-        /* Initialize Py_FileSystemDefaultEncoding from
-           locale even if PYTHONIOENCODING is set. */
-        if (!Py_FileSystemDefaultEncoding) {
-            Py_FileSystemDefaultEncoding = loc_codeset;
-            if (!overridden)
-                free_codeset = 0;
-        }
-    }
-#endif
-
-#ifdef MS_WINDOWS
-    if (!overridden) {
-        icodeset = ibuf;
-        codeset = buf;
-        sprintf(ibuf, "cp%d", GetConsoleCP());
-        sprintf(buf, "cp%d", GetConsoleOutputCP());
-    }
-#endif
-
-    if (codeset) {
-        sys_stream = PySys_GetObject("stdin");
-        if ((overridden || isatty_no_error(sys_stream)) &&
-            PyFile_Check(sys_stream)) {
-            if (!PyFile_SetEncodingAndErrors(sys_stream, icodeset, errors))
-                Py_FatalError("Cannot set codeset of stdin");
-        }
-
-        sys_stream = PySys_GetObject("stdout");
-        if ((overridden || isatty_no_error(sys_stream)) &&
-            PyFile_Check(sys_stream)) {
-            if (!PyFile_SetEncodingAndErrors(sys_stream, codeset, errors))
-                Py_FatalError("Cannot set codeset of stdout");
-        }
-
-        sys_stream = PySys_GetObject("stderr");
-        if ((overridden || isatty_no_error(sys_stream)) &&
-            PyFile_Check(sys_stream)) {
-            if (!PyFile_SetEncodingAndErrors(sys_stream, codeset, errors))
-                Py_FatalError("Cannot set codeset of stderr");
-        }
-
-        if (free_codeset)
-            free(codeset);
-    }
-}
 
 void
 Py_Initialize(void)
 {
+#ifdef _AMIGA
+    init_amiga();  /* Initialize Amiga environment first */
+#endif
+
     Py_InitializeEx(1);
 }
 
@@ -1828,7 +1611,7 @@ Py_FdIsInteractive(FILE *fp, const char *filename)
         return 0;
     return (filename == NULL) ||
            (strcmp(filename, "<stdin>") == 0) ||
-           (strcmp(filename, "???") == 0);
+           (strcmp(filename, "???") == 0));
 }
 
 

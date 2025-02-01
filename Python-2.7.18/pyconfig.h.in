@@ -1312,5 +1312,13 @@
 #define STRICT_SYSV_CURSES /* Don't use ncurses extensions */
 #endif
 
+/* AmigaOS specific defines */
+#undef _AMIGA
+#undef PYTHONCASEOK
+#undef MAXPATHLEN
+#undef HAVE_GETPID
+#undef WITHOUT_THREAD
+#undef USE_AMIGA_IO
+
 #endif /*Py_PYCONFIG_H*/
 

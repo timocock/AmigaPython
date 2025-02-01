@@ -2,52 +2,28 @@
 #include "amiga_compat.h"
 
 #ifdef _AMIGA
+/* Include existing Amiga implementations */
+#include "Amiga/_allocufb.c"
+#include "Amiga/_chkufb.c"
+#include "Amiga/_close.c"
+#include "Amiga/_dup.c"
+#include "Amiga/_dup2.c"
+#include "Amiga/_fstat.c"
+#include "Amiga/_lseek.c"
+#include "Amiga/_open.c"
+#include "Amiga/_read.c"
+#include "Amiga/_write.c"
+#include "Amiga/access.c"
+#include "Amiga/chmod.c"
+#include "Amiga/chown.c"
+#include "Amiga/dosio_init.c"
+#include "Amiga/dostat.c"
+#include "Amiga/fhopen.c"
 
-void set_amiga_error(void)
+/* Initialize Amiga compatibility layer */
+void init_amiga_compat(void)
 {
-    int error = IoErr();
-    switch(error) {
-        case ERROR_OBJECT_NOT_FOUND:
-            errno = ENOENT;
-            break;
-        case ERROR_DISK_WRITE_PROTECTED:
-            errno = EROFS;
-            break;
-        case ERROR_OBJECT_EXISTS:
-            errno = EEXIST;
-            break;
-        case ERROR_DIR_NOT_FOUND:
-            errno = ENOTDIR;
-            break;
-        default:
-            errno = EIO;
-    }
+    /* Initialize DOS I/O */
+    __init_dosio();
 }
-
-char *amiga_to_unix_path(const char *path)
-{
-    char *newpath = strdup(path);
-    char *p;
-    if (newpath == NULL)
-        return NULL;
-    for (p = newpath; *p; p++) {
-        if (*p == '/') 
-            *p = ':';
-    }
-    return newpath;
-}
-
-char *unix_to_amiga_path(const char *path)
-{
-    char *newpath = strdup(path);
-    char *p;
-    if (newpath == NULL)
-        return NULL;
-    for (p = newpath; *p; p++) {
-        if (*p == ':') 
-            *p = '/';
-    }
-    return newpath;
-}
-
-#endif /* _AMIGA */ 
+#endif

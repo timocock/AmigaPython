@@ -1146,5 +1146,10 @@ Python/thread.o: @THREADHEADERS@
 
 # Add Amiga-specific build rules
 ifeq ($(MACHDEP),amigaos)
-OBJECT_OBJS=@OBJECT_OBJS@ Amiga/dynload_amiga.o
+LIBS += -lamiga
+OBJECT_OBJS += Amiga/dynload_amiga.o
 endif
+
+POSIX_OBJS=       \
+        posixmodule.o \
+        $(POSIX_EXTRA_OBJS)

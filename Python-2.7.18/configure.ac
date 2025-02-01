@@ -2744,7 +2744,7 @@ pthread_create (NULL, NULL, start_routine, NULL)]])],[
     LIBS="$LIBS -lcma"
     THREADOBJ="Python/thread.o"],[
     USE_THREAD_MODULE="#"])
-    ])])])])])])])])])])
+    ])])])])])])])])])])])])
 
     AC_CHECK_LIB(mpc, usconfig, [AC_DEFINE(WITH_THREAD)
     LIBS="$LIBS -lmpc"
@@ -3518,6 +3518,9 @@ int main()
           }
         }
         inet6++;
+        break;
+      case AF_UNSPEC:
+        goto bad;
         break;
       case AF_UNSPEC:
         goto bad;
@@ -4981,3 +4984,36 @@ if test "$Py_OPT" = 'false' -a "$Py_DEBUG" != 'true'; then
     echo "" >&AS_MESSAGE_FD
     echo "" >&AS_MESSAGE_FD
 fi
+
+# Add AmigaOS detection
+AC_CANONICAL_SYSTEM
+
+# Add AmigaOS case
+case $host in
+  *-*-amigaos*)
+    AC_DEFINE(_AMIGA, 1, [Define if building for AmigaOS])
+    AC_DEFINE(PYTHONCASEOK, 1, [Define for case-insensitive filesystems])
+    AC_DEFINE(MAXPATHLEN, 1024, [Maximum path length])
+    AC_DEFINE(HAVE_GETPID, 1, [Define if you have getpid()])
+    AC_DEFINE(WITHOUT_THREAD, 1, [Disable thread support])
+    AC_DEFINE(USE_AMIGA_IO, 1, [Use Amiga-specific I/O functions])
+    AC_SUBST(MACHDEP, "amigaos")
+    
+    dnl Disable unsupported features
+    ac_cv_header_pthread_h=no
+    ac_cv_lib_pthread_pthread_create=no
+    ac_cv_func_sem_open=no
+    ;;
+esac
+
+# Add Amiga-specific compiler flags
+AMIGA_CFLAGS="-D_AMIGA -DPYTHONCASEOK -I/AmigaOS/include"
+AC_SUBST(AMIGA_CFLAGS)
+CFLAGS="$CFLAGS $AMIGA_CFLAGS"
+
+# Disable unsupported features
+AC_MSG_CHECKING(for AmigaOS-specific feature overrides)
+AC_MSG_RESULT([Disabling threads, complex numbers, and dynamic loading])
+ac_cv_complex=no
+ac_cv_file__dev_ptmx=no
+ac_cv_file__dev_ptc=no
